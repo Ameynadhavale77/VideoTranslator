@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Live Video Translator",
+  "version": "1.0",
+  "description": "Real-time subtitles for video calls using Deepgram.",
+  "permissions": [
+    "tabCapture",
+    "scripting",
+    "activeTab",
+    "offscreen",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "Start Translator"
+  },
+  "background": {
+    "service_worker": "src/background/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/content.js"],
+      "css": ["src/content/styles.css"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/icons/*.png"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
