@@ -41,7 +41,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function handleToggleCapture(request, sendResponse) {
-    const { tabId, apiKey, language, targetLanguage } = request;
+    const { tabId, language, targetLanguage } = request;
 
     if (isRecording) {
         // ... (stop logic) ...
@@ -59,10 +59,7 @@ async function handleToggleCapture(request, sendResponse) {
     } else {
         // START RECORDING
         try {
-            if (!apiKey) {
-                sendResponse({ status: "Error: API Key missing", isRecording: false });
-                return;
-            }
+            // FORCE PRE-INJECTION of Content Script
 
             // FORCE PRE-INJECTION of Content Script
             // This ensures the receiver exists before we try to talk to it.
@@ -87,9 +84,9 @@ async function handleToggleCapture(request, sendResponse) {
             chrome.runtime.sendMessage({
                 action: "START_RECORDING_OFFSCREEN",
                 streamId: streamId,
-                apiKey: apiKey,
                 language: language,
-                targetLanguage: targetLanguage
+                targetLanguage: targetLanguage,
+                token: request.token // Pass the Auth Token
             });
 
             isRecording = true;

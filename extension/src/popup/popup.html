@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Video Translator</title>
+  <style>
+    body {
+      width: 320px;
+      padding: 20px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #1a1b1e;
+      color: #e9ecef;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 5px;
+    }
+
+    .logo {
+      font-size: 18px;
+      font-weight: bold;
+      color: #4dabf7;
+    }
+
+    .user-info {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+    }
+
+    #user-display {
+      font-size: 11px;
+      color: #adb5bd;
+    }
+
+    #logout-link {
+      font-size: 11px;
+      color: #fa5252;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    #logout-link:hover {
+      text-decoration: underline;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 20px;
+      text-align: center;
+      color: #4dabf7;
+    }
+
+    /* Auth State Containers */
+    #auth-view,
+    #app-view {
+      display: none;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    /* Show auth by default, JS will toggle */
+    #auth-view {
+      display: flex;
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    label {
+      font-size: 12px;
+      color: #adb5bd;
+    }
+
+    input,
+    select {
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #373a40;
+      background-color: #25262b;
+      color: white;
+      outline: none;
+    }
+
+    input:focus {
+      border-color: #4dabf7;
+    }
+
+    button {
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      background-color: #339af0;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background-color: #228be6;
+    }
+
+    button.secondary {
+      background-color: transparent;
+      border: 1px solid #373a40;
+      color: #adb5bd;
+    }
+
+    button.secondary:hover {
+      background-color: #25262b;
+      color: white;
+    }
+
+    .recording {
+      background-color: #fa5252 !important;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.8;
+      }
+
+      100% {
+        opacity: 1;
+      }
+    }
+
+    #status {
+      font-size: 13px;
+      text-align: center;
+      color: #868e96;
+      min-height: 20px;
+    }
+
+    .error {
+      color: #fa5252 !important;
+    }
+
+    .success {
+      color: #40c057 !important;
+    }
+
+    .link {
+      font-size: 12px;
+      text-align: center;
+      color: #4dabf7;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+
+
+  <!-- 1. Authentication View -->
+  <div id="auth-view">
+    <div class="input-group">
+      <label for="email">Email</label>
+      <input type="email" id="email" placeholder="you@example.com">
+    </div>
+    <div class="input-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" placeholder="••••••••">
+    </div>
+
+    <button id="loginBtn">Log In</button>
+    <button id="signupBtn" class="secondary">Sign Up</button>
+
+    <div id="auth-message" style="font-size: 12px; text-align: center;"></div>
+  </div>
+
+  <!-- 2. Application View (After Login) -->
+  <div id="app-view">
+
+
+    <div class="header">
+      <div class="logo">Video Translator</div>
+      <div class="user-info">
+        <span id="user-display"></span>
+        <a href="#" id="logout-link">Logout</a>
+      </div>
+    </div>
+
+    <!-- Credit Banner (Moved to Top) -->
+    <div id="credit-display"
+      style="background-color: #1F2937; color: white; padding: 10px; border-radius: 8px; margin: 10px 0; text-align: center; font-size: 14px; border: 1px solid #374151;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span>Balance: <span id="credit-amount" style="font-weight: bold; color: #34D399;">...</span></span>
+        <button id="add-credits-btn"
+          style="background-color: #F59E0B; padding: 4px 8px; font-size: 12px; border: none; border-radius: 4px; cursor: pointer;">Add
+          Credits 💳</button>
+      </div>
+    </div>
+
+    <div class="input-group">
+      <label for="language">Video Language</label>
+      <select id="language">
+        <option value="en" selected>English</option>
+        <option value="es">Spanish</option>
+        <option value="fr">French</option>
+        <option value="de">German</option>
+        <option value="it">Italian</option>
+        <option value="pt">Portuguese</option>
+        <option value="hi">Hindi</option>
+        <option value="ja">Japanese</option>
+        <option value="ko">Korean</option>
+        <option value="zh">Chinese</option>
+      </select>
+    </div>
+
+    <div class="input-group">
+      <label for="targetLanguage">Subtitle Language</label>
+      <select id="targetLanguage">
+        <option value="same" selected>Same as Spoken</option>
+        <option value="en">English</option>
+        <option value="es">Spanish</option>
+        <option value="fr">French</option>
+        <option value="de">German</option>
+        <option value="it">Italian</option>
+        <option value="pt">Portuguese</option>
+        <option value="hi">Hindi</option>
+        <option value="ja">Japanese</option>
+        <option value="ko">Korean</option>
+        <option value="zh">Chinese</option>
+      </select>
+    </div>
+
+    <button id="toggleBtn">Start Translating</button>
+
+    <!-- Status at Bottom -->
+    <div class="status-indicator"
+      style="margin-top: 15px; display: flex; align-items: center; justify-content: center; color: #9CA3AF; font-size: 12px;">
+      <span id="status-dot" class="dot" style="margin-right: 6px;"></span>
+      Status: <span id="status-text" style="margin-left: 4px;">Ready</span>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <!-- Load Config as Module -->
+  <script type="module" src="popup.js"></script>
+</body>
+
+</html>
