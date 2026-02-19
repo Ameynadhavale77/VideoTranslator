@@ -11,7 +11,7 @@ let currentToken = null; // Store for stopHistory
 let isRecording = false;
 let mediaStream = null;
 let mediaRecorder = null;
-const APP_URL = "http://localhost:3000"; // Use "https://web-psi-eosin-49ke2bfbsd.vercel.app" for production
+const APP_URL = "https://www.anyvideotranslator.com"; // Use "http://localhost:3000" for local dev
 
 // GLOBAL STATE
 let audioContext = null;
@@ -81,16 +81,30 @@ async function startRecording(streamId, language, targetLanguage, token) {
                 try {
                     const base64Audio = await blobToBase64(blob);
 
-
-                    const response = await fetch(`${APP_URL}/api/proxy`, {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            audio: base64Audio,
-                            language: language,
-                            targetLanguage: targetLanguage,
-                            token: token
-                        })
-                    });
+                    // Fetch with 1 retry on failure
+                    let response;
+                    for (let attempt = 0; attempt < 2; attempt++) {
+                        try {
+                            response = await fetch(`${APP_URL}/api/proxy`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    audio: base64Audio,
+                                    language: language,
+                                    targetLanguage: targetLanguage,
+                                    token: token
+                                })
+                            });
+                            break; // Success, exit retry loop
+                        } catch (fetchErr) {
+                            if (attempt === 0) {
+                                console.warn("Fetch failed, retrying in 500ms...", fetchErr.message);
+                                await new Promise(r => setTimeout(r, 500));
+                            } else {
+                                throw fetchErr; // 2nd attempt failed, bubble up
+                            }
+                        }
+                    }
 
                     if (response.status === 401) {
                         console.error("Authentication Token Expired (401)");
@@ -115,7 +129,7 @@ async function startRecording(streamId, language, targetLanguage, token) {
                         transcriptBuffer = transcriptBuffer.trim();
 
                         // 2. Process Buffer: Look for "Split Points" (Punctuators)
-                        const splitRegex = /(.*?[.?!,。！？，])\s+(.*)/s;
+                        const splitRegex = /(.*?[.?!,。！？，])\s*(.*)/s;
 
                         let match;
                         while ((match = transcriptBuffer.match(splitRegex)) !== null) {
@@ -240,6 +254,16 @@ async function startRecording(streamId, language, targetLanguage, token) {
 
 function stopRecording() {
     isRecording = false;
+
+    // Flush remaining buffer as FINAL before clearing
+    if (transcriptBuffer.trim().length > 0) {
+        chrome.runtime.sendMessage({
+            action: "TRANSCRIPT_RECEIVED",
+            chunkId: currentChunkId,
+            text: transcriptBuffer.trim(),
+            isFinal: true
+        });
+    }
     transcriptBuffer = ""; // Clear buffer
 
     // Stop Sidecar History

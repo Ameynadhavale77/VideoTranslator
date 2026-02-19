@@ -64,15 +64,6 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Out of Credits! Please top up.", code: "NO_CREDITS" }, { status: 402, headers: corsHeaders });
         }
 
-        // 2. Deduct Credits (Approx 2 seconds per chunk)
-        const DEDUCTION_AMOUNT = 2;
-        await admin
-            .from('credits')
-            .update({ balance_seconds: creditData.balance_seconds - DEDUCTION_AMOUNT })
-            .eq('user_id', userId);
-
-        console.log(`💰 Deducted ${DEDUCTION_AMOUNT}s. Remaining: ${creditData.balance_seconds - DEDUCTION_AMOUNT}s`);
-
         if (!audio) {
             return NextResponse.json({ error: "No audio data" }, { status: 400 });
         }
@@ -97,6 +88,15 @@ export async function POST(req: Request) {
 
         // 4. Return result (Pure Transcript)
         const transcript = dgResult.results?.channels[0]?.alternatives[0]?.transcript || "";
+
+        // 5. Deduct Credits ONLY after successful Deepgram response
+        const DEDUCTION_AMOUNT = 2;
+        await admin
+            .from('credits')
+            .update({ balance_seconds: creditData.balance_seconds - DEDUCTION_AMOUNT })
+            .eq('user_id', userId);
+
+        console.log(`💰 Deducted ${DEDUCTION_AMOUNT}s. Remaining: ${creditData.balance_seconds - DEDUCTION_AMOUNT}s`);
 
         return NextResponse.json({
             transcript: transcript,
