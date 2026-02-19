@@ -95,21 +95,33 @@ Return ONLY valid JSON in this exact format:
 }`;
 
                 const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
-
-                const aiResponse = await fetch(geminiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: prompt }] }],
-                        generationConfig: {
-                            responseMimeType: "application/json"
-                        }
-                    })
+                const requestBody = JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        responseMimeType: "application/json"
+                    }
                 });
 
-                console.log(`Gemini API Status: ${aiResponse.status}`);
+                // Retry up to 3 times for 429 rate limit errors
+                let aiResponse: Response | null = null;
+                const delays = [0, 2000, 5000]; // 0s, 2s, 5s backoff
+                for (let attempt = 0; attempt < delays.length; attempt++) {
+                    if (delays[attempt] > 0) {
+                        console.log(`Gemini retry ${attempt + 1}, waiting ${delays[attempt]}ms...`);
+                        await new Promise(r => setTimeout(r, delays[attempt]));
+                    }
+                    aiResponse = await fetch(geminiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: requestBody
+                    });
+                    console.log(`Gemini attempt ${attempt + 1}: HTTP ${aiResponse.status}`);
+                    if (aiResponse.status !== 429) break; // Not rate limited, exit loop
+                }
 
-                if (aiResponse.ok) {
+                console.log(`Gemini API Status: ${aiResponse?.status}`);
+
+                if (aiResponse && aiResponse.ok) {
                     const aiData = await aiResponse.json();
                     const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
                     console.log(`Gemini raw content: ${content?.substring(0, 200)}`);
@@ -132,7 +144,7 @@ Return ONLY valid JSON in this exact format:
 
                         console.log("AI Summary generated & saved!");
                     }
-                } else {
+                } else if (aiResponse) {
                     const errorText = await aiResponse.text();
                     console.warn("Gemini API Failed:", aiResponse.status, errorText);
                     aiDebug = `api_error_${aiResponse.status}: ${errorText.substring(0, 200)}`;
