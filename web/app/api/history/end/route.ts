@@ -104,7 +104,7 @@ Return ONLY valid JSON in this exact format:
 
                 // Retry up to 3 times for 429 rate limit errors
                 let aiResponse: Response | null = null;
-                const delays = [0, 2000, 5000]; // 0s, 2s, 5s backoff
+                const delays = [0, 5000, 15000]; // 0s, 5s, 15s backoff (60s Node.js timeout)
                 for (let attempt = 0; attempt < delays.length; attempt++) {
                     if (delays[attempt] > 0) {
                         console.log(`Gemini retry ${attempt + 1}, waiting ${delays[attempt]}ms...`);

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseClient, getSupabaseAdmin } from '@/lib/supabase'; // Import the client
 
-export const runtime = 'edge';
+// Node.js runtime (60s timeout, full Buffer support)
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -68,12 +68,8 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "No audio data" }, { status: 400 });
         }
 
-        // 2. Decode Base64 audio to Uint8Array (Edge-compatible, no Node.js Buffer)
-        const binaryString = atob(audio);
-        const audioBuffer = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-            audioBuffer[i] = binaryString.charCodeAt(i);
-        }
+        // 2. Decode Base64 audio to Buffer
+        const audioBuffer = Buffer.from(audio, 'base64');
 
         // 3. Send to Deepgram (REST API for a single chunk)
         // Using Nova-3 as per latest upgrade
