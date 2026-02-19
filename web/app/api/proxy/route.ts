@@ -3,22 +3,21 @@ import { getSupabaseClient, getSupabaseAdmin } from '@/lib/supabase'; // Import 
 
 export const runtime = 'edge';
 
-export async function POST(req: Request) {
-    // CORS Headers for Extension
-    const corsHeaders = {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    };
+const corsHeaders = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
 
+export async function OPTIONS() {
+    return NextResponse.json({}, { headers: corsHeaders });
+}
+
+export async function POST(req: Request) {
     try {
         const apiKey = process.env.DEEPGRAM_API_KEY;
         if (!apiKey) {
             return NextResponse.json({ error: "Server Error: Missing Key" }, { status: 500, headers: corsHeaders });
-        }
-
-        if (req.method === 'OPTIONS') {
-            return NextResponse.json({}, { headers: corsHeaders });
         }
 
         // 1. Get the chunk data & token

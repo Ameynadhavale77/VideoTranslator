@@ -3,16 +3,17 @@ import { getSupabaseClient, getSupabaseAdmin } from '@/lib/supabase';
 
 export const runtime = 'edge';
 
-export async function GET(req: Request) {
-    const corsHeaders = {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    };
+const corsHeaders = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
 
-    if (req.method === 'OPTIONS') {
-        return NextResponse.json({}, { headers: corsHeaders });
-    }
+export async function OPTIONS() {
+    return NextResponse.json({}, { headers: corsHeaders });
+}
+
+export async function GET(req: Request) {
 
     try {
         const { searchParams } = new URL(req.url);
