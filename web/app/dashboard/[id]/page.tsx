@@ -61,6 +61,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
             setSession(sessionData);
 
             // 2. Fetch Transcripts
+            console.log(`Fetching transcripts for session: ${id}`);
             const { data: transcriptData, error: transcriptError } = await supabase
                 .from('session_transcripts')
                 .select('*')
@@ -70,6 +71,8 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
             if (transcriptError) {
                 console.error("Transcript Fetch Error:", JSON.stringify(transcriptError, null, 2));
             }
+
+            console.log(`Transcripts fetched: ${transcriptData?.length || 0}`, transcriptData?.slice(0, 2));
 
             if (transcriptData) {
                 setTranscripts(transcriptData);
