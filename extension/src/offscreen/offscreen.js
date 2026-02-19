@@ -316,9 +316,9 @@ async function saveHistory(token, log) {
         });
         const data = await res.json();
         if (data.success) {
-            console.log("Meeting history saved!", data.sessionId);
+            console.log("Meeting history saved!", data.sessionId, "AI:", data.aiDebug);
         } else {
-            console.warn("History save failed:", data.error);
+            console.warn("History save failed:", data.error, JSON.stringify(data));
         }
     } catch (err) {
         console.error("History Save Error:", err);

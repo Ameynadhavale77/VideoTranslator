@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 
-export const runtime = 'edge';
+// Removed edge runtime — Node.js runtime is more reliable for external API calls
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -65,8 +65,11 @@ export async function POST(req: Request) {
             console.error("Transcript Insert Error:", insertError);
         }
 
-        // 4. Generate AI Summary (Gemini) — fire & forget style
+        // 4. Generate AI Summary (Gemini)
         const geminiKey = process.env.GEMINI_API_KEY;
+        console.log(`GEMINI_API_KEY present: ${!!geminiKey}, length: ${geminiKey?.length || 0}`);
+        console.log(`Transcript chunks: ${transcript.length}`);
+        let aiDebug = 'no_key';
         if (geminiKey) {
             try {
                 const fullText = transcript.map((t: { text: string; timestamp: number }) =>
@@ -104,9 +107,13 @@ Return ONLY valid JSON in this exact format:
                     })
                 });
 
+                console.log(`Gemini API Status: ${aiResponse.status}`);
+
                 if (aiResponse.ok) {
                     const aiData = await aiResponse.json();
                     const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
+                    console.log(`Gemini raw content: ${content?.substring(0, 200)}`);
+                    aiDebug = 'response_ok';
 
                     if (content) {
                         const result = JSON.parse(content);
@@ -126,12 +133,15 @@ Return ONLY valid JSON in this exact format:
                         console.log("AI Summary generated & saved!");
                     }
                 } else {
-                    console.warn("Gemini API Failed:", await aiResponse.text());
+                    const errorText = await aiResponse.text();
+                    console.warn("Gemini API Failed:", aiResponse.status, errorText);
+                    aiDebug = `api_error_${aiResponse.status}: ${errorText.substring(0, 200)}`;
                     // Still mark as completed even without AI
                     await admin.from('sessions').update({ status: 'completed' }).eq('id', sessionId);
                 }
             } catch (aiErr: any) {
-                console.error("AI Generation Error:", aiErr.message);
+                console.error("AI Generation Error:", aiErr.message, aiErr.stack);
+                aiDebug = `catch_error: ${aiErr.message}`;
                 await admin.from('sessions').update({ status: 'completed' }).eq('id', sessionId);
             }
         } else {
@@ -139,7 +149,7 @@ Return ONLY valid JSON in this exact format:
             await admin.from('sessions').update({ status: 'completed' }).eq('id', sessionId);
         }
 
-        return NextResponse.json({ success: true, sessionId: sessionId }, { headers: corsHeaders });
+        return NextResponse.json({ success: true, sessionId: sessionId, aiDebug: aiDebug }, { headers: corsHeaders });
 
     } catch (error: any) {
         console.error("History End Error:", error);
