@@ -55,6 +55,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Internal cleanup
         resetRecordingState();
     }
+    if (request.action === "OFFSCREEN_CLEANUP_DONE") {
+        // Offscreen finished saving history — safe to close now
+        try { chrome.offscreen.closeDocument(); } catch (e) { }
+    }
 });
 
 async function setRecordingState(active, tabId) {
@@ -84,9 +88,12 @@ async function handleToggleCapture(request, sendResponse) {
 
 async function stopRecording() {
     chrome.runtime.sendMessage({ action: "STOP_RECORDING_OFFSCREEN" }).catch(() => { });
-    try {
-        await chrome.offscreen.closeDocument();
-    } catch (e) { }
+    // Don't close offscreen immediately — wait for OFFSCREEN_CLEANUP_DONE signal
+    // (gives saveHistory() time to complete its fetch)
+    // Fallback: close after 15s if signal never comes
+    setTimeout(async () => {
+        try { await chrome.offscreen.closeDocument(); } catch (e) { }
+    }, 15000);
 
     await setRecordingState(false, null);
     chrome.action.setBadgeText({ text: "" });

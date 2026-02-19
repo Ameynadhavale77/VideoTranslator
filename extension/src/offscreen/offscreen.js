@@ -264,7 +264,7 @@ async function startRecording(streamId, language, targetLanguage, token) {
     }
 }
 
-function stopRecording() {
+async function stopRecording() {
     isRecording = false;
 
     // Flush remaining buffer as FINAL before clearing
@@ -278,9 +278,9 @@ function stopRecording() {
     }
     transcriptBuffer = ""; // Clear buffer
 
-    // Save meeting history (fire & forget — no performance impact)
+    // Save meeting history (AWAIT so offscreen stays alive until done)
     if (currentToken && historyLog.length > 0) {
-        saveHistory(currentToken, historyLog);
+        await saveHistory(currentToken, historyLog);
     }
     currentToken = null;
     historyLog = [];
@@ -297,6 +297,9 @@ function stopRecording() {
         audioContext.close();
         audioContext = null;
     }
+
+    // Signal background that cleanup is complete — safe to close offscreen
+    chrome.runtime.sendMessage({ action: "OFFSCREEN_CLEANUP_DONE" }).catch(() => { });
 }
 
 // --- HISTORY: Save transcript to server (one API call, after stop) ---
