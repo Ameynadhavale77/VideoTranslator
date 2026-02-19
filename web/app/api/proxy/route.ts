@@ -68,8 +68,12 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "No audio data" }, { status: 400 });
         }
 
-        // 2. Decode Base64 audio to Buffer
-        const audioBuffer = Buffer.from(audio, 'base64');
+        // 2. Decode Base64 audio to Uint8Array (Edge-compatible, no Node.js Buffer)
+        const binaryString = atob(audio);
+        const audioBuffer = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            audioBuffer[i] = binaryString.charCodeAt(i);
+        }
 
         // 3. Send to Deepgram (REST API for a single chunk)
         // Using Nova-3 as per latest upgrade
@@ -83,6 +87,11 @@ export async function POST(req: Request) {
             },
             body: audioBuffer
         });
+
+        if (!dgResponse.ok) {
+            console.error(`Deepgram Error: ${dgResponse.status} ${dgResponse.statusText}`);
+            return NextResponse.json({ error: "Deepgram API Error" }, { status: 502, headers: corsHeaders });
+        }
 
         const dgResult = await dgResponse.json();
 
