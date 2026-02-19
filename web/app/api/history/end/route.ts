@@ -65,24 +65,23 @@ export async function POST(req: Request) {
             console.error("Transcript Insert Error:", insertError);
         }
 
-        // 4. Generate AI Summary (Gemini)
-        const geminiKey = process.env.GEMINI_API_KEY;
-        console.log(`GEMINI_API_KEY present: ${!!geminiKey}, length: ${geminiKey?.length || 0}`);
-        console.log(`Transcript chunks: ${transcript.length}`);
+        // 4. Generate AI Summary (Groq — free, fast, OpenAI-compatible)
+        const groqKey = process.env.GROQ_API_KEY;
         let aiDebug = 'no_key';
-        if (geminiKey) {
+
+        if (groqKey) {
             try {
                 const fullText = transcript.map((t: { text: string; timestamp: number }) =>
                     `[${Math.floor(t.timestamp)}s] ${t.text}`
                 ).join('\n');
 
-                // Truncate for safety (Gemini handles ~1M tokens but keep it reasonable)
-                const truncatedText = fullText.substring(0, 30000);
+                const truncatedText = fullText.substring(0, 20000);
+                console.log(`Generating AI summary for ${transcript.length} chunks (${truncatedText.length} chars)...`);
 
                 const prompt = `You are an expert Meeting Assistant. Analyze the following transcript and provide:
 1. A concise "summary" (3-5 sentences capturing the main discussion).
 2. A list of "key_points" (5-8 important discussion points as strings).
-3. A list of "action_items" (tasks that need to be done, each with "task" and "owner" fields).
+3. A list of "action_items" (tasks that need to be done, each with "task" and "owner" fields. If owner is unknown, use "Unassigned").
 
 Transcript:
 ${truncatedText}
@@ -94,37 +93,26 @@ Return ONLY valid JSON in this exact format:
   "action_items": [{"task": "...", "owner": "..."}]
 }`;
 
-                const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
-                const requestBody = JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        responseMimeType: "application/json"
-                    }
+                const aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${groqKey}`
+                    },
+                    body: JSON.stringify({
+                        model: 'llama-3.3-70b-versatile',
+                        messages: [{ role: 'user', content: prompt }],
+                        temperature: 0.3,
+                        response_format: { type: 'json_object' }
+                    })
                 });
 
-                // Retry up to 3 times for 429 rate limit errors
-                let aiResponse: Response | null = null;
-                const delays = [0, 5000, 15000]; // 0s, 5s, 15s backoff (60s Node.js timeout)
-                for (let attempt = 0; attempt < delays.length; attempt++) {
-                    if (delays[attempt] > 0) {
-                        console.log(`Gemini retry ${attempt + 1}, waiting ${delays[attempt]}ms...`);
-                        await new Promise(r => setTimeout(r, delays[attempt]));
-                    }
-                    aiResponse = await fetch(geminiUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: requestBody
-                    });
-                    console.log(`Gemini attempt ${attempt + 1}: HTTP ${aiResponse.status}`);
-                    if (aiResponse.status !== 429) break; // Not rate limited, exit loop
-                }
+                console.log(`Groq API Status: ${aiResponse.status}`);
 
-                console.log(`Gemini API Status: ${aiResponse?.status}`);
-
-                if (aiResponse && aiResponse.ok) {
+                if (aiResponse.ok) {
                     const aiData = await aiResponse.json();
-                    const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
-                    console.log(`Gemini raw content: ${content?.substring(0, 200)}`);
+                    const content = aiData.choices?.[0]?.message?.content;
+                    console.log(`Groq raw content: ${content?.substring(0, 200)}`);
                     aiDebug = 'response_ok';
 
                     if (content) {
@@ -144,15 +132,14 @@ Return ONLY valid JSON in this exact format:
 
                         console.log("AI Summary generated & saved!");
                     }
-                } else if (aiResponse) {
+                } else {
                     const errorText = await aiResponse.text();
-                    console.warn("Gemini API Failed:", aiResponse.status, errorText);
+                    console.warn("Groq API Failed:", aiResponse.status, errorText);
                     aiDebug = `api_error_${aiResponse.status}: ${errorText.substring(0, 200)}`;
-                    // Still mark as completed even without AI
                     await admin.from('sessions').update({ status: 'completed' }).eq('id', sessionId);
                 }
             } catch (aiErr: any) {
-                console.error("AI Generation Error:", aiErr.message, aiErr.stack);
+                console.error("AI Generation Error:", aiErr.message);
                 aiDebug = `catch_error: ${aiErr.message}`;
                 await admin.from('sessions').update({ status: 'completed' }).eq('id', sessionId);
             }
