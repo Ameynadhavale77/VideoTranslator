@@ -6,6 +6,8 @@ console.log("Video Translator: Content script loaded.");
 if (typeof subtitleContainer === 'undefined') {
     var subtitleContainer = null;
     var fadeTimeout = null;
+    var lastShownText = ""; // Dedup tracker
+    var readyCleared = false; // Track if Ready message was cleared
 }
 
 // ZOMBIE CLEANUP: Remove old container if it exists (fixes "Context Invalidated" on reload)
@@ -167,7 +169,22 @@ chrome.runtime.onMessage.addListener((message) => {
     if (message.action === "SHOW_SUBTITLE") {
         createSubtitleContainer();
 
+        // Clear "Ready" text on first real subtitle
+        if (!readyCleared) {
+            readyCleared = true;
+            // Remove any bare text nodes (the "Ready" message)
+            Array.from(subtitleContainer.childNodes).forEach(node => {
+                if (node.nodeType === Node.TEXT_NODE) node.remove();
+            });
+        }
+
         const { chunkId, text, isFinal } = message;
+
+        // Dedup: skip if exact same text as last shown chunk
+        if (text === lastShownText && !document.getElementById(`chunk-${chunkId}`)) {
+            return;
+        }
+        lastShownText = text;
 
         // 1. Try to find existing chunk
         let chunkElement = document.getElementById(`chunk-${chunkId}`);

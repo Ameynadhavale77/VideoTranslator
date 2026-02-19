@@ -3,33 +3,25 @@ import { getSupabaseAdmin } from '@/lib/supabase';
 
 export const runtime = 'edge';
 
-// Types for OpenAI Response
-interface OpenAIResponse {
-    choices: {
-        message: {
-            content: string;
-        };
-    }[];
+const corsHeaders = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+export async function OPTIONS() {
+    return NextResponse.json({}, { headers: corsHeaders });
 }
 
 export async function POST(req: Request) {
-    const corsHeaders = {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    };
-
     try {
-        if (req.method === 'OPTIONS') {
-            return NextResponse.json({}, { headers: corsHeaders });
+        const { token, transcript } = await req.json();
+
+        if (!token || !transcript || transcript.length === 0) {
+            return NextResponse.json({ error: "Missing token or transcript" }, { status: 400, headers: corsHeaders });
         }
 
-        const { sessionId, token } = await req.json();
-
-        if (!token || !sessionId) {
-            return NextResponse.json({ error: "Missing Token/Session" }, { status: 401, headers: corsHeaders });
-        }
-
+        // 1. Auth Check
         const admin = getSupabaseAdmin();
         const { data: { user }, error: authError } = await admin.auth.getUser(token);
 
@@ -37,85 +29,120 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
         }
 
-        // 1. Mark Session as Completed
-        await admin
+        // 2. Create Session
+        const sessionTitle = `Meeting on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+
+        const { data: sessionData, error: sessionError } = await admin
             .from('sessions')
-            .update({
-                status: 'completed',
-                ended_at: new Date().toISOString()
+            .insert({
+                user_id: user.id,
+                title: sessionTitle,
+                started_at: new Date(Date.now() - (transcript[transcript.length - 1].timestamp * 1000)).toISOString(),
+                ended_at: new Date().toISOString(),
+                status: 'processing'
             })
-            .eq('id', sessionId);
+            .select()
+            .single();
 
-        console.log(`Session ${sessionId} marked as completed.`);
+        if (sessionError || !sessionData) {
+            console.error("Session Create Error:", sessionError);
+            return NextResponse.json({ error: "Failed to create session" }, { status: 500, headers: corsHeaders });
+        }
 
-        // 2. AI Summary Generation (Optional, IF Key exists)
-        const openaiKey = process.env.OPENAI_API_KEY;
-        if (openaiKey) {
-            // Fetch Transcripts
-            const { data: transcripts } = await admin
-                .from('session_transcripts')
-                .select('speaker, text, timestamp')
-                .eq('session_id', sessionId)
-                .order('timestamp', { ascending: true });
+        const sessionId = sessionData.id;
+        console.log(`Session created: ${sessionId} for ${user.email}`);
 
-            if (transcripts && transcripts.length > 0) {
-                // Prepare Context
-                const fullText = transcripts.map(t => `${t.speaker}: ${t.text}`).join('\n');
+        // 3. Save Transcripts
+        const transcriptRows = transcript.map((t: { text: string; timestamp: number }) => ({
+            session_id: sessionId,
+            speaker: "Speaker",
+            text: t.text,
+            timestamp: t.timestamp
+        }));
 
-                // Truncate if too long (Basic safety)
-                const truncatedText = fullText.substring(0, 15000); // ~4k tokens approximation safety
+        const { error: insertError } = await admin.from('session_transcripts').insert(transcriptRows);
+        if (insertError) {
+            console.error("Transcript Insert Error:", insertError);
+        }
 
-                const prompt = `
-You are an expert Meeting Assistant. Analyze the following transcript and provide:
-1. A concise "Meeting Summary" (3-5 sentences).
-2. A list of "Action Items" (Task + Owner). Return these as a JSON array of objects [{ task: string, owner: string }].
+        // 4. Generate AI Summary (Gemini) — fire & forget style
+        const geminiKey = process.env.GEMINI_API_KEY;
+        if (geminiKey) {
+            try {
+                const fullText = transcript.map((t: { text: string; timestamp: number }) =>
+                    `[${Math.floor(t.timestamp)}s] ${t.text}`
+                ).join('\n');
+
+                // Truncate for safety (Gemini handles ~1M tokens but keep it reasonable)
+                const truncatedText = fullText.substring(0, 30000);
+
+                const prompt = `You are an expert Meeting Assistant. Analyze the following transcript and provide:
+1. A concise "summary" (3-5 sentences capturing the main discussion).
+2. A list of "key_points" (5-8 important discussion points as strings).
+3. A list of "action_items" (tasks that need to be done, each with "task" and "owner" fields).
 
 Transcript:
 ${truncatedText}
 
-Return JSON format: { "summary": string, "action_items": [] }
-`;
+Return ONLY valid JSON in this exact format:
+{
+  "summary": "...",
+  "key_points": ["point 1", "point 2"],
+  "action_items": [{"task": "...", "owner": "..."}]
+}`;
 
-                const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+                const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
+
+                const aiResponse = await fetch(geminiUrl, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${openaiKey}`
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        model: 'gpt-4o-mini', // or gpt-3.5-turbo
-                        messages: [{ role: 'user', content: prompt }],
-                        response_format: { type: "json_object" }
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: {
+                            responseMimeType: "application/json"
+                        }
                     })
                 });
 
                 if (aiResponse.ok) {
-                    const aiData = await aiResponse.json() as OpenAIResponse;
-                    const content = aiData.choices[0].message.content;
+                    const aiData = await aiResponse.json();
+                    const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
+
                     if (content) {
                         const result = JSON.parse(content);
 
-                        // Update Session with Summary
                         await admin
                             .from('sessions')
                             .update({
-                                ai_summary: result.summary,
-                                action_items: result.action_items
+                                ai_summary: result.summary || null,
+                                action_items: {
+                                    key_points: result.key_points || [],
+                                    action_items: result.action_items || []
+                                },
+                                status: 'completed'
                             })
                             .eq('id', sessionId);
 
-                        console.log("AI Summary Generated & Saved.");
+                        console.log("AI Summary generated & saved!");
                     }
                 } else {
-                    console.warn("OpenAI API Failed:", await aiResponse.text());
+                    console.warn("Gemini API Failed:", await aiResponse.text());
+                    // Still mark as completed even without AI
+                    await admin.from('sessions').update({ status: 'completed' }).eq('id', sessionId);
                 }
+            } catch (aiErr: any) {
+                console.error("AI Generation Error:", aiErr.message);
+                await admin.from('sessions').update({ status: 'completed' }).eq('id', sessionId);
             }
+        } else {
+            // No API key — just mark as completed
+            await admin.from('sessions').update({ status: 'completed' }).eq('id', sessionId);
         }
 
-        return NextResponse.json({ success: true }, { headers: corsHeaders });
+        return NextResponse.json({ success: true, sessionId: sessionId }, { headers: corsHeaders });
 
     } catch (error: any) {
-        console.error("End History Error:", error);
+        console.error("History End Error:", error);
         return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders });
     }
 }

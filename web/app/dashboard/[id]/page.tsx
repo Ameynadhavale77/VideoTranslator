@@ -83,20 +83,22 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     if (loading) return <div className="text-white p-10 font-sans text-center">Loading session...</div>;
     if (!session) return <div className="text-white p-10 font-sans text-center">Session not found.</div>;
 
-    // Helper to format Action Items (JSONB)
-    const actionItems = Array.isArray(session.action_items) ? session.action_items : [];
+    // Helper to extract structured data (action_items JSONB stores both)
+    const rawItems = session.action_items || {};
+    const actionItems = Array.isArray(rawItems) ? rawItems : (rawItems.action_items || []);
+    const keyPoints: string[] = Array.isArray(rawItems.key_points) ? rawItems.key_points : [];
 
     return (
         <div className="min-h-screen bg-black text-white p-8 font-sans">
             <div className="max-w-5xl mx-auto">
                 {/* Header */}
                 <div className="mb-8 border-b border-gray-800 pb-4">
-                    {/* <button
+                    <button
                         onClick={() => router.push('/dashboard')}
                         className="text-sm text-gray-500 hover:text-white mb-4 block"
                     >
                         ← Back to History
-                    </button> */}
+                    </button>
                     <h1 className="text-3xl font-bold">{session.title}</h1>
                     <p className="text-gray-400 mt-1">
                         {new Date(session.started_at).toLocaleString()} • {session.status.toUpperCase()}
@@ -104,7 +106,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    {/* Left Column: Summary & Actions */}
+                    {/* Left Column: Summary, Key Points & Actions */}
                     <div className="lg:col-span-1 space-y-6">
                         {/* Summary Card */}
                         <div className="bg-gray-900/50 p-6 rounded-xl border border-gray-800">
@@ -120,6 +122,25 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
                             )}
                         </div>
 
+                        {/* Key Points Card */}
+                        <div className="bg-gray-900/50 p-6 rounded-xl border border-gray-800">
+                            <h2 className="text-lg font-semibold mb-3 text-yellow-400">Key Points</h2>
+                            {keyPoints.length > 0 ? (
+                                <ul className="space-y-2">
+                                    {keyPoints.map((point: string, idx: number) => (
+                                        <li key={idx} className="flex items-start text-sm">
+                                            <span className="mr-2 mt-1 block w-2 h-2 bg-yellow-500 rounded-full flex-shrink-0"></span>
+                                            <span className="text-gray-300">{point}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p className="text-gray-600 text-sm italic">
+                                    No key points found.
+                                </p>
+                            )}
+                        </div>
+
                         {/* Action Items Card */}
                         <div className="bg-gray-900/50 p-6 rounded-xl border border-gray-800">
                             <h2 className="text-lg font-semibold mb-3 text-green-400">Action Items</h2>
@@ -127,7 +148,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
                                 <ul className="space-y-3">
                                     {actionItems.map((item: any, idx: number) => (
                                         <li key={idx} className="flex items-start text-sm">
-                                            <span className="mr-2 mt-1 block w-2 h-2 bg-green-500 rounded-full"></span>
+                                            <span className="mr-2 mt-1 block w-2 h-2 bg-green-500 rounded-full flex-shrink-0"></span>
                                             <div>
                                                 <span className="text-gray-200 block">{item.task}</span>
                                                 {item.owner && (

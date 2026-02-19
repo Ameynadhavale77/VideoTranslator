@@ -5,7 +5,11 @@ const subtitleChannel = new BroadcastChannel('translator_channel');
 // STITCHING BUFFER STATE
 let transcriptBuffer = "";
 let currentChunkId = Date.now(); // Unique ID for current sentence
-let currentToken = null; // Store for stopHistory
+let currentToken = null; // Store for history save
+
+// HISTORY LOG (Zero-impact: just accumulates text in memory)
+let historyLog = [];
+let historyStartTime = 0;
 
 // GLOBAL STATE
 let isRecording = false;
@@ -51,7 +55,9 @@ async function startRecording(streamId, language, targetLanguage, token) {
         isRecording = true;
         transcriptBuffer = ""; // Reset buffer
         currentChunkId = Date.now();
-        currentToken = token; // Save for stop
+        currentToken = token; // Save for history
+        historyLog = []; // Reset history log
+        historyStartTime = Date.now();
 
         // Initialize MediaStream *BEFORE* AudioContext
         mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -123,6 +129,12 @@ async function startRecording(streamId, language, targetLanguage, token) {
                     if (result.transcript && result.transcript.trim().length > 0) {
                         // ... transcript processing ...
                         let newText = result.transcript.trim();
+
+                        // HISTORY: Accumulate raw transcript (zero-cost)
+                        historyLog.push({
+                            text: newText,
+                            timestamp: (Date.now() - historyStartTime) / 1000
+                        });
 
                         // 1. Append to Buffer
                         transcriptBuffer += " " + newText;
@@ -266,11 +278,12 @@ function stopRecording() {
     }
     transcriptBuffer = ""; // Clear buffer
 
-    // Stop Sidecar History
-    if (currentToken) {
-        stopHistory(currentToken);
-        currentToken = null;
+    // Save meeting history (fire & forget — no performance impact)
+    if (currentToken && historyLog.length > 0) {
+        saveHistory(currentToken, historyLog);
     }
+    currentToken = null;
+    historyLog = [];
 
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         mediaRecorder.stop();
@@ -286,76 +299,26 @@ function stopRecording() {
     }
 }
 
-// --- SIDECAR PIPELINE (HISTORY) ---
-let historyRecorder = null;
-let historySessionId = null;
-let historyStartTime = 0;
-
-async function startHistory(token) {
+// --- HISTORY: Save transcript to server (one API call, after stop) ---
+async function saveHistory(token, log) {
     try {
-        console.log("Starting History Sidecar...");
-        historyStartTime = Date.now();
-
-        // 1. Create Session
-        const res = await fetch(`${APP_URL}/api/history/start`, {
+        console.log(`Saving meeting history (${log.length} chunks)...`);
+        const res = await fetch(`${APP_URL}/api/history/end`, {
             method: 'POST',
-            body: JSON.stringify({ token: token })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                token: token,
+                transcript: log
+            })
         });
         const data = await res.json();
-
-        if (data.sessionId) {
-            historySessionId = data.sessionId;
-            console.log("History Session ID:", historySessionId);
-
-            // 2. Start Slow Recorder (15s chunks)
-            historyRecorder = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
-
-            historyRecorder.addEventListener('dataavailable', async (event) => {
-                if (event.data.size > 0 && historySessionId) {
-                    const chunkStart = (Date.now() - historyStartTime - 15000) / 1000; // Approx start of this 15s chunk
-                    const safeStart = Math.max(0, chunkStart);
-
-                    const blob = event.data;
-                    const base64 = await blobToBase64(blob);
-
-                    // Fire & Forget (Sidecar)
-                    fetch(`${APP_URL}/api/history/save`, {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            audio: base64,
-                            sessionId: historySessionId,
-                            token: token,
-                            chunkStartTime: safeStart
-                        })
-                    }).catch(err => console.error("History Save Error:", err));
-                }
-            });
-
-            // Start with 15s timeslice
-            historyRecorder.start(15000);
+        if (data.success) {
+            console.log("Meeting history saved!", data.sessionId);
+        } else {
+            console.warn("History save failed:", data.error);
         }
-    } catch (error) {
-        console.error("History Start Failed:", error);
-    }
-}
-
-function stopHistory(token) {
-    if (historyRecorder && historyRecorder.state !== 'inactive') {
-        historyRecorder.stop();
-    }
-
-    if (historySessionId) {
-        console.log("Ending History Session...");
-        fetch(`${APP_URL}/api/history/end`, {
-            method: 'POST',
-            body: JSON.stringify({
-                sessionId: historySessionId,
-                token: token
-            })
-        }).catch(err => console.error("History End Error:", err));
-
-        historySessionId = null;
-        historyRecorder = null;
+    } catch (err) {
+        console.error("History Save Error:", err);
     }
 }
 
