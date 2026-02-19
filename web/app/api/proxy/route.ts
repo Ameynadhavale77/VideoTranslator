@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase, getSupabaseAdmin } from '@/lib/supabase'; // Import the client
+import { getSupabaseClient, getSupabaseAdmin } from '@/lib/supabase'; // Import the client
 
 export const runtime = 'edge';
 
@@ -27,6 +27,7 @@ export async function POST(req: Request) {
         // --- AUTH CHECK ---
         let userId = null;
         if (token) {
+            const supabase = getSupabaseClient();
             const { data: { user }, error } = await supabase.auth.getUser(token);
             if (!error && user) {
                 userId = user.id;
@@ -81,7 +82,8 @@ export async function POST(req: Request) {
         const audioBuffer = Buffer.from(audio, 'base64');
 
         // 3. Send to Deepgram (REST API for a single chunk)
-        const deepgramUrl = `https://api.deepgram.com/v1/listen?smart_format=true&model=nova-2&language=${language || 'en'}`;
+        // Using Nova-3 as per latest upgrade
+        const deepgramUrl = `https://api.deepgram.com/v1/listen?smart_format=true&model=nova-3&language=${language || 'en'}`;
 
         const dgResponse = await fetch(deepgramUrl, {
             method: "POST",
@@ -94,7 +96,7 @@ export async function POST(req: Request) {
 
         const dgResult = await dgResponse.json();
 
-        // 4. Return result
+        // 4. Return result (Pure Transcript)
         const transcript = dgResult.results?.channels[0]?.alternatives[0]?.transcript || "";
 
         return NextResponse.json({

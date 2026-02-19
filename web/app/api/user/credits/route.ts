@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase, getSupabaseAdmin } from '@/lib/supabase';
+import { getSupabaseClient, getSupabaseAdmin } from '@/lib/supabase';
 
 export const runtime = 'edge';
 
@@ -23,6 +23,7 @@ export async function GET(req: Request) {
         }
 
         // 1. Verify Token
+        const supabase = getSupabaseClient();
         const { data: { user }, error } = await supabase.auth.getUser(token);
         if (error || !user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });

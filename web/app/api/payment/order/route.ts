@@ -3,14 +3,22 @@ import Razorpay from 'razorpay';
 
 export const runtime = 'nodejs'; // Razorpay SDK needs Node.js runtime, not Edge
 
-const razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID!,
-    key_secret: process.env.RAZORPAY_KEY_SECRET!,
-});
+// Helper to get Razorpay instance lazily
+const getRazorpay = () => {
+    if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+        throw new Error("Razorpay keys are missing");
+    }
+    return new Razorpay({
+        key_id: process.env.RAZORPAY_KEY_ID,
+        key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+};
 
 export async function POST(req: Request) {
     try {
         const { amount, currency = "INR" } = await req.json();
+
+        const razorpay = getRazorpay();
 
         const options = {
             amount: amount * 100, // Razorpay works in subunits (paise), so multiply by 100

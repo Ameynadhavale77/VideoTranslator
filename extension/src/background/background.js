@@ -1,7 +1,16 @@
 // src/background/background.js
 
+// Restore state from storage to handle Service Worker wakeups
 let isRecording = false;
 let recordingTabId = null;
+
+// Initialize state from storage
+chrome.storage.local.get(['recordingState'], (result) => {
+    if (result.recordingState) {
+        isRecording = result.recordingState.isRecording;
+        recordingTabId = result.recordingState.recordingTabId;
+    }
+});
 
 // Ensure offscreen document exists
 async function setupOffscreenDocument(path) {
@@ -23,7 +32,6 @@ async function setupOffscreenDocument(path) {
         });
     } catch (err) {
         if (err.message.includes('Only a single offscreen document may be created')) {
-            // Ignore this error, it just means we are good to go
             return;
         }
         throw err;
@@ -33,143 +41,184 @@ async function setupOffscreenDocument(path) {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "TOGGLE_CAPTURE") {
         handleToggleCapture(request, sendResponse);
-        return true; // Keep message channel open for async response
+        return true;
     }
     if (request.action === "GET_STATUS") {
-        sendResponse({ isRecording: isRecording });
+        // Always read fresh from storage for status
+        chrome.storage.local.get(['recordingState'], (result) => {
+            const state = result.recordingState || { isRecording: false };
+            sendResponse({ isRecording: state.isRecording });
+        });
+        return true;
+    }
+    if (request.action === "STOP_RECORDING_OFFSCREEN") {
+        // Internal cleanup
+        resetRecordingState();
     }
 });
+
+async function setRecordingState(active, tabId) {
+    isRecording = active;
+    recordingTabId = tabId;
+    await chrome.storage.local.set({
+        recordingState: { isRecording: active, recordingTabId: tabId }
+    });
+}
 
 async function handleToggleCapture(request, sendResponse) {
     const { tabId, language, targetLanguage } = request;
 
+    // Refresh state from storage first
+    const stored = await chrome.storage.local.get(['recordingState']);
+    if (stored.recordingState) {
+        isRecording = stored.recordingState.isRecording;
+    }
+
     if (isRecording) {
-        // ... (stop logic) ...
-        // ... (stop logic remains same) ...
-        // STOP RECORDING
-        chrome.runtime.sendMessage({ action: "STOP_RECORDING_OFFSCREEN" });
-
-        // Force close the offscreen document to ensure tab capture stops completely
-        chrome.offscreen.closeDocument();
-
-        isRecording = false;
-        recordingTabId = null;
-        chrome.action.setBadgeText({ text: "" });
+        await stopRecording();
         sendResponse({ status: "Translation Stopped", isRecording: false });
     } else {
-        // START RECORDING
-        try {
-            // FORCE PRE-INJECTION of Content Script
+        await startRecording(tabId, language, targetLanguage, request.token, sendResponse);
+    }
+}
 
-            // FORCE PRE-INJECTION of Content Script
-            // This ensures the receiver exists before we try to talk to it.
-            await chrome.scripting.insertCSS({
-                target: { tabId: tabId },
-                files: ["src/content/styles.css"]
-            }).catch(() => { }); // Ignore error if already injected
+async function stopRecording() {
+    chrome.runtime.sendMessage({ action: "STOP_RECORDING_OFFSCREEN" }).catch(() => { });
+    try {
+        await chrome.offscreen.closeDocument();
+    } catch (e) { }
 
-            await chrome.scripting.executeScript({
-                target: { tabId: tabId },
-                files: ["src/content/content.js"]
-            }).catch(() => { }); // Ignore error if already injected
+    await setRecordingState(false, null);
+    chrome.action.setBadgeText({ text: "" });
+}
 
-            await setupOffscreenDocument('src/offscreen/offscreen.html');
+async function startRecording(tabId, language, targetLanguage, token, sendResponse) {
+    try {
+        // Inject scripts
+        await chrome.scripting.insertCSS({
+            target: { tabId: tabId },
+            files: ["src/content/styles.css"]
+        }).catch(() => { });
 
-            // Get Stream ID for the specific tab
-            const streamId = await chrome.tabCapture.getMediaStreamId({
-                targetTabId: tabId
+        await chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            files: ["src/content/content.js"]
+        }).catch(() => { });
+
+        await setupOffscreenDocument('src/offscreen/offscreen.html');
+
+        const streamId = await chrome.tabCapture.getMediaStreamId({
+            targetTabId: tabId
+        });
+
+        chrome.runtime.sendMessage({
+            action: "START_RECORDING_OFFSCREEN",
+            streamId: streamId,
+            language: language,
+            targetLanguage: targetLanguage,
+            token: token
+        });
+
+        await setRecordingState(true, tabId);
+        chrome.action.setBadgeText({ text: "ON" });
+        chrome.action.setBadgeBackgroundColor({ color: "#fa5252" });
+
+        sendResponse({ status: "Translation Started", isRecording: true });
+
+    } catch (err) {
+        console.error("Error starting capture:", err);
+
+        // AUTO-RECOVERY: If tab is already captured, force a reset.
+        if (err.message.includes("Cannot capture a tab with an active stream")) {
+            console.log("Stream stuck. Resetting...");
+
+            // Force close everything
+            await stopRecording();
+
+            // Tell user to try again (it's cleaner than auto-retrying which might loop)
+            sendResponse({ status: "Connection Reset. Click Start Again.", isRecording: false });
+        } else {
+            sendResponse({ status: "Error: " + err.message, isRecording: false });
+        }
+    }
+}
+
+// Listen for messages from Offscreen
+chrome.runtime.onMessage.addListener((message) => {
+    if (message.action === "TRANSCRIPT_RECEIVED") {
+        const payload = {
+            action: "SHOW_SUBTITLE",
+            text: message.text,
+            chunkId: message.chunkId,   // Forward unique ID
+            isFinal: message.isFinal    // Forward status
+        };
+
+        // Need to know WHO to send to. Read from memory (restored) or storage.
+        if (recordingTabId) {
+            sendToContentScript(recordingTabId, payload);
+        } else {
+            // Fallback to storage if memory was wiped
+            chrome.storage.local.get(['recordingState'], (res) => {
+                if (res.recordingState && res.recordingState.recordingTabId) {
+                    sendToContentScript(res.recordingState.recordingTabId, payload);
+                }
             });
+        }
+    }
+    else if (message.action === "AUTH_ERROR") {
+        stopRecording();
+        chrome.action.setBadgeText({ text: "ERR" });
+        chrome.action.setBadgeBackgroundColor({ color: "#000000" });
 
-            // Send Stream ID and API Key to Offscreen document
-            chrome.runtime.sendMessage({
-                action: "START_RECORDING_OFFSCREEN",
-                streamId: streamId,
-                language: language,
-                targetLanguage: targetLanguage,
-                token: request.token // Pass the Auth Token
-            });
+        // Show Notification
+        chrome.notifications.create({
+            type: 'basic',
+            iconUrl: '../icons/icon128.png',
+            title: 'Login Expired',
+            message: 'Please open the extension and log in again to continue translating.',
+            priority: 2
+        });
+    }
+});
 
-            isRecording = true;
-            recordingTabId = tabId;
-            chrome.action.setBadgeText({ text: "ON" });
-            chrome.action.setBadgeBackgroundColor({ color: "#fa5252" });
+async function sendToContentScript(tabId, message) {
+    try {
+        await chrome.tabs.sendMessage(tabId, message);
+    } catch (err) {
+        console.log("Message failed:", err.message);
 
-            sendResponse({ status: "Translation Started", isRecording: true });
-
-        } catch (err) {
-            console.error("Error starting capture:", err);
-            // Handle "active stream" error
-            if (err.message.includes("Cannot capture a tab with an active stream")) {
-                sendResponse({ status: "Error: Tab already capturing. Please refresh the page.", isRecording: false });
-            } else {
-                sendResponse({ status: "Error: " + err.message, isRecording: false });
+        // Auto-Fix: If content script is missing (e.g., user didn't reload page), inject it and retry.
+        if (err.message.includes("Receiving end does not exist") || err.message.includes("Could not establish connection")) {
+            console.log("Re-injecting content script...", tabId);
+            try {
+                await chrome.scripting.executeScript({
+                    target: { tabId: tabId },
+                    files: ["src/content/content.js"]
+                });
+                // Retry once
+                await new Promise(r => setTimeout(r, 50));
+                await chrome.tabs.sendMessage(tabId, message);
+                console.log("Retry successful!");
+            } catch (retryErr) {
+                console.error("Retry failed:", retryErr.message);
             }
         }
     }
 }
 
-// Listen for messages from Offscreen (Transcript Relay)
-chrome.runtime.onMessage.addListener((message) => {
-    if (message.action === "TRANSCRIPT_RECEIVED") {
-        if (recordingTabId) {
-            sendToContentScript(recordingTabId, {
-                action: "SHOW_SUBTITLE",
-                text: message.text
-            });
-        }
-    }
-});
-
-// Robust Message Sender with Auto-Injection
-async function sendToContentScript(tabId, message) {
-    try {
-        await chrome.tabs.sendMessage(tabId, message);
-    } catch (err) {
-        console.log("Message failed, attempting re-injection:", err.message);
-
-        // If message failed, likely content script is missing. Inject it.
-        try {
-            await chrome.scripting.insertCSS({
-                target: { tabId: tabId },
-                files: ["src/content/styles.css"]
-            });
-            await chrome.scripting.executeScript({
-                target: { tabId: tabId },
-                files: ["src/content/content.js"]
-            });
-
-            // Wait 100ms for script to init
-            await new Promise(r => setTimeout(r, 100));
-
-            // Retry sending ONCE
-            await chrome.tabs.sendMessage(tabId, message);
-            console.log("Re-injection/Retry successful.");
-        } catch (retryErr) {
-            console.error("Critical: Could not send to content script even after injection:", retryErr);
-            // Don't kill recording here, maybe it's just one frame.
-        }
-    }
-}
-
-// Clean up if the recorded tab is closed or refreshed
+// Clean up
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (tabId === recordingTabId && changeInfo.status === 'loading') {
-        console.log("Recorded tab refreshed or negotiated, resetting state.");
-        resetRecordingState();
+        stopRecording();
     }
 });
 
-chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+chrome.tabs.onRemoved.addListener((tabId) => {
     if (tabId === recordingTabId) {
-        console.log("Recorded tab closed, resetting state.");
-        resetRecordingState();
+        stopRecording();
     }
 });
 
-function resetRecordingState() {
-    isRecording = false;
-    recordingTabId = null;
-    chrome.action.setBadgeText({ text: "" });
-    // Try to close offscreen just in case
-    chrome.offscreen.closeDocument().catch(err => console.log("Offscreen close error:", err));
+async function resetRecordingState() {
+    await stopRecording();
 }

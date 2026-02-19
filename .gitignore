@@ -1,0 +1,19 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+.next/
+
+# Env files
+.env
+.env.local
+.env.production
+
+# Zip builds
+*.zip
+
+# Temp files
+*.swp
+temp_*

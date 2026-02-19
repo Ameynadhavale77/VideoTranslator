@@ -11,6 +11,7 @@
   "dependencies": {
     "@deepgram/sdk": "^4.11.3",
     "@supabase/supabase-js": "^2.93.3",
+    "google-translate-api-x": "^10.7.2",
     "next": "16.1.6",
     "razorpay": "^2.9.6",
     "react": "19.2.3",

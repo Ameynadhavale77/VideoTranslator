@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import Script from 'next/script';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function BillingPage() {
+function BillingContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const [user, setUser] = useState<any>(null);
@@ -60,7 +60,7 @@ export default function BillingPage() {
                 key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID, // Add this to env.local public
                 amount: order.amount,
                 currency: order.currency,
-                name: "Video Translator",
+                name: "Any Video Translator",
                 description: plan === 'starter' ? "1 Hour Credits" : "5 Hours Credits",
                 order_id: order.id,
                 handler: async function (response: any) {
@@ -146,5 +146,13 @@ export default function BillingPage() {
                 </div>
             )}
         </div>
+    );
+}
+
+export default function BillingPage() {
+    return (
+        <Suspense fallback={<div className="p-10 text-white bg-gray-900 min-h-screen">Loading Payment Gateway...</div>}>
+            <BillingContent />
+        </Suspense>
     );
 }

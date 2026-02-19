@@ -2,7 +2,7 @@
 <html>
 
 <head>
-  <title>Video Translator</title>
+  <title>Live Video Translator</title>
   <style>
     body {
       width: 320px;
@@ -183,6 +183,20 @@
     <button id="signupBtn" class="secondary">Sign Up</button>
 
     <div id="auth-message" style="font-size: 12px; text-align: center;"></div>
+    <div class="link" id="forgot-password-link" style="margin-top: 10px;">Forgot Password?</div>
+  </div>
+
+  <!-- 1.5 Forgot Password View -->
+  <div id="forgot-password-view" style="display: none;">
+    <h2>Reset Password</h2>
+    <p style="font-size: 12px; color: #adb5bd; text-align: center;">Enter your email to receive a reset link.</p>
+    <div class="input-group">
+      <label for="reset-email">Email</label>
+      <input type="email" id="reset-email" placeholder="you@example.com">
+    </div>
+    <button id="sendResetBtn">Send Reset Link</button>
+    <button id="backToLoginBtn" class="secondary">Back to Login</button>
+    <div id="reset-message" style="font-size: 12px; text-align: center;"></div>
   </div>
 
   <!-- 2. Application View (After Login) -->
@@ -190,10 +204,14 @@
 
 
     <div class="header">
-      <div class="logo">Video Translator</div>
+      <div class="logo">Live Video Translator</div>
       <div class="user-info">
         <span id="user-display"></span>
-        <a href="#" id="logout-link">Logout</a>
+        <div style="display: flex; gap: 8px;">
+          <a href="#" id="history-link"
+            style="color: #4dabf7; text-decoration: none; font-size: 11px; display: none;">History</a>
+          <a href="#" id="logout-link">Logout</a>
+        </div>
       </div>
     </div>
 
@@ -221,6 +239,14 @@
         <option value="ja">Japanese</option>
         <option value="ko">Korean</option>
         <option value="zh">Chinese</option>
+        <option value="ru">Russian</option>
+        <option value="tr">Turkish</option>
+        <option value="pl">Polish</option>
+        <option value="nl">Dutch</option>
+        <option value="sv">Swedish</option>
+        <option value="id">Indonesian</option>
+        <option value="th">Thai</option>
+        <option value="vi">Vietnamese</option>
       </select>
     </div>
 
@@ -238,10 +264,70 @@
         <option value="ja">Japanese</option>
         <option value="ko">Korean</option>
         <option value="zh">Chinese</option>
+        <option value="ru">Russian</option>
+        <option value="tr">Turkish</option>
+        <option value="pl">Polish</option>
+        <option value="nl">Dutch</option>
+        <option value="sv">Swedish</option>
+        <option value="id">Indonesian</option>
+        <option value="th">Thai</option>
+        <option value="vi">Vietnamese</option>
+        <option value="ta">Tamil</option>
+        <option value="te">Telugu</option>
+        <option value="mr">Marathi</option>
+        <option value="gu">Gujarati</option>
+        <option value="ur">Urdu</option>
+        <option value="ar">Arabic</option>
+        <option value="bn">Bengali</option>
+        <option value="kn">Kannada</option>
       </select>
     </div>
 
-    <button id="toggleBtn">Start Translating</button>
+    <!-- Collapsible Advanced Options -->
+    <button id="toggleAdvancedBtn" class="secondary"
+      style="width: 100%; font-size: 11px; padding: 6px; margin-top: 5px; border-style: dashed;">
+      ⚙️ Show Advanced Options
+    </button>
+
+    <div id="advanced-options"
+      style="display: none; border-top: 1px solid #373a40; padding-top: 10px; margin-top: 5px; flex-direction: column; gap: 8px;">
+
+      <!-- Colors -->
+      <div style="display: flex; gap: 10px;">
+        <div style="flex: 1;">
+          <label style="display: block; margin-bottom: 4px; font-size: 10px;">Text Color</label>
+          <input type="color" id="textColor" value="#ffffff"
+            style="width: 100%; height: 30px; padding: 0; border: none; cursor: pointer;">
+        </div>
+        <div style="flex: 1;">
+          <label style="display: block; margin-bottom: 4px; font-size: 10px;">Background</label>
+          <input type="color" id="bgColor" value="#000000"
+            style="width: 100%; height: 30px; padding: 0; border: none; cursor: pointer;">
+        </div>
+      </div>
+
+      <!-- Transparency Slider -->
+      <div>
+        <label style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 10px;">
+          <span>Background Opacity</span>
+          <span id="opacityValue">70%</span>
+        </label>
+        <input type="range" id="bgOpacity" min="0" max="100" value="70" style="width: 100%; cursor: pointer;">
+      </div>
+
+      <!-- Reset Buttons -->
+      <div style="display: flex; gap: 5px;">
+        <button id="resetColorsBtn" class="secondary" style="flex: 1; font-size: 10px; padding: 6px;">
+          ↺ Reset Colors
+        </button>
+        <button id="resetPosBtn" class="secondary" style="flex: 1; font-size: 10px; padding: 6px;">
+          ↺ Reset Position
+        </button>
+      </div>
+
+    </div>
+
+    <button id="toggleBtn" style="margin-top: 10px;">Start Translating</button>
 
     <!-- Status at Bottom -->
     <div class="status-indicator"

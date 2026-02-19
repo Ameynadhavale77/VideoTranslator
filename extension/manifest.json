@@ -1,20 +1,31 @@
 {
   "manifest_version": 3,
-  "name": "Live Video Translator",
-  "version": "1.0",
-  "description": "Real-time subtitles for video calls using Deepgram.",
+  "name": "Live Video Translator - AI Subtitles & Captions",
+  "version": "1.0.6",
+  "description": "Get real-time translated subtitles for Netflix, YouTube, Zoom, and Google Meet. AI-powered captions for any video in your browser.",
   "permissions": [
     "tabCapture",
     "scripting",
     "activeTab",
     "offscreen",
-    "storage"
+    "storage",
+    "notifications"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
+  "icons": {
+    "16": "src/icons/icon16.png",
+    "48": "src/icons/icon48.png",
+    "128": "src/icons/icon128.png"
+  },
   "action": {
     "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "src/icons/icon16.png",
+      "48": "src/icons/icon48.png",
+      "128": "src/icons/icon128.png"
+    },
     "default_title": "Start Translator"
   },
   "background": {
@@ -22,15 +33,25 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["src/content/content.js"],
-      "css": ["src/content/styles.css"]
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "src/content/content.js"
+      ],
+      "css": [
+        "src/content/styles.css"
+      ]
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/icons/*.png"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "src/icons/*.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }
