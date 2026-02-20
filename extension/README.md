@@ -1,68 +1,139 @@
-# 🎙️ Live Video Call Translator (Chrome Extension)
+# 🎙️ Any Video Translator — AI-Powered Live Subtitles & Meeting History
 
-> **Hackathon Project**: Breaking language barriers in real-time video calls (Google Meet, Zoom, YouTube) using AI.
+> Real-time translated subtitles for **any** video site — YouTube, Netflix, Zoom, Google Meet, and more. Plus AI-powered meeting summaries, key points, and action items.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Chrome](https://img.shields.io/badge/platform-Chrome_Extension-green.svg)
-![AI](https://img.shields.io/badge/AI-Deepgram_%2B_Google_Translate-purple.svg)
+![AI](https://img.shields.io/badge/AI-Deepgram_Nova--3-purple.svg)
+![Translation](https://img.shields.io/badge/Translation-Google_Translate-blue.svg)
+![Summary](https://img.shields.io/badge/Summary-Groq_Llama_3.3-orange.svg)
 
-## 🚀 The Problem
-In a globalized world, language barriers stop collaboration in video meetings. Existing tools are either expensive, platform-specific (like Zoom's paid plan), or have high latency.
+🌐 **Live:** [anyvideotranslator.com](https://www.anyvideotranslator.com)
 
-## 💡 The Solution
-A **Universal Chrome Extension** that works on ANY video site (YouTube, Meet, etc.). It captures the tab's audio, transcribes it instantly, and translates it to your preferred language using a hybrid AI pipeline.
+---
 
-**Key Features:**
-*   **Universal Compatibility**: Works on any site with audio.
-*   **Real-Time Transcription**: Powered by **Deepgram Nova-2** (Fastest model availble).
-*   **Multi-Language Translation**: Hybrid bridge using **Google Translate API** for any-to-any translation (e.g., Hindi Audio -> English Text).
-*   **Zero-Lag UI**: Custom "History Mode" subtitles that stabilize text to prevent flickering.
+## 🚀 Features
+
+### 🎬 Real-Time Subtitles
+- **Universal** — Works on ANY website with audio (YouTube, Netflix, Zoom, Meet, etc.)
+- **Fast** — 1-second audio chunks for near-instant subtitles
+- **Accurate** — Powered by **Deepgram Nova-3** (state-of-the-art speech model)
+- **Multi-Language** — Translate from any language to any language via Google Translate bridge
+
+### 📝 Meeting History & AI Insights *(NEW)*
+- **Auto-saved transcripts** — Every session is stored with timestamps
+- **AI Summary** — 3-5 sentence overview of the conversation
+- **Key Points** — 5-8 important discussion highlights
+- **Action Items** — Tasks with owners extracted from the meeting
+- **Zero performance impact** — Transcripts accumulate in memory, saved in one API call on stop
+- **Powered by Groq** — Llama 3.3 70B for fast, high-quality AI analysis
+
+### 🔐 User System
+- **Supabase Auth** — Email/password login
+- **Credit System** — Pay-per-use with Razorpay integration
+- **Dashboard** — View all past sessions at [anyvideotranslator.com/dashboard](https://www.anyvideotranslator.com/dashboard)
 
 ---
 
 ## 🛠️ Tech Stack
-*   **Frontend**: HTML5, CSS3, Vanilla JavaScript (Lightweight).
-*   **Browser API**: Chrome Extensions Manifest V3 (TabCapture, Scripting, Offscreen Documents).
-*   **AI Engine (Speech)**: Deepgram Streaming WebSocket API.
-*   **AI Engine (Translation)**: Custom Google Translate Bridge (Client-Side).
 
----
-
-## 📸 Screenshots
-*(Add your screenshots here: 1. The Popup Menu, 2. The Subtitles in action on YouTube)*
-
----
-
-## ⚡ How to Install (For Judges)
-
-1.  **Clone this Repo**:
-    ```bash
-    git clone https://github.com/yourusername/video-call-translator.git
-    ```
-2.  **Open Chrome Extensions**:
-    *   Go to `chrome://extensions` in your browser.
-    *   Turn on **Developer Mode** (top right).
-3.  **Load the Extension**:
-    *   Click **Load Unpacked**.
-    *   Select the folder `VideoTranslator-Final` from this repo.
-4.  **Run It**:
-    *   Open a YouTube video (e.g., a speech in Hindi).
-    *   Click the Extension Icon.
-    *   Select **From: Hindi** -> **To: English**.
-    *   Enter your Deepgram API Key (or ask us for a demo key).
-    *   Click **Start**.
+| Layer | Technology |
+|-------|-----------|
+| Extension | Chrome Manifest V3 (TabCapture, Offscreen Documents) |
+| Frontend | HTML5, CSS3, Vanilla JavaScript |
+| Web App | Next.js 16 (App Router) |
+| Speech AI | Deepgram Nova-3 (REST API) |
+| Translation | Google Translate (Client-side bridge) |
+| AI Summary | Groq API (Llama 3.3 70B) |
+| Auth & DB | Supabase (PostgreSQL + Auth) |
+| Payments | Razorpay |
+| Hosting | Vercel |
 
 ---
 
 ## 🧠 Architecture
-1.  **Popup**: User selects languages.
-2.  **Background.js**: Coordinates the "Tab Capture" stream.
-3.  **Offscreen.js**: The "Brain". Receives audio stream -> Sends to Deepgram -> Receives Text -> Sends to Google Translate -> Sends to Content Script.
-4.  **Content.js**: The "UI". Draws the floating subtitle box on the video element.
+
+```
+┌─────────────────────────────────────────────────┐
+│                Chrome Extension                  │
+│  ┌──────────┐  ┌────────────┐  ┌──────────────┐ │
+│  │ Popup.js │  │ Background │  │ Content.js   │ │
+│  │ (UI/Auth)│  │ (Coord.)   │  │ (Subtitles)  │ │
+│  └──────────┘  └────────────┘  └──────────────┘ │
+│                 ┌────────────┐                    │
+│                 │ Offscreen  │ ← Audio capture    │
+│                 │ (Brain)    │ → Transcript buffer │
+│                 └─────┬──────┘ → History log      │
+└───────────────────────┼──────────────────────────┘
+                        │
+                   ┌────▼────┐
+                   │ Vercel  │
+                   │ API     │
+                   ├─────────┤
+                   │/api/proxy     → Deepgram Nova-3
+                   │/api/history   → Supabase + Groq AI
+                   │/api/user      → Auth + Credits
+                   └─────────┘
+```
 
 ---
 
-## 🔮 Future Roadmap
-*   **Speaker Diarization**: Detecting *who* is speaking in a meeting.
-*   **Local AI**: Switching to OpenAI Whisper (WASM) for privacy-first offline translation.
-*   **Meeting Notes**: Auto-saving the transcript as a PDF after the meeting.
+## ⚡ Setup
+
+### 1. Clone & Install
+```bash
+git clone https://github.com/Ameynadhavale77/VideoTranslator.git
+cd VideoTranslator
+cd web && npm install
+```
+
+### 2. Environment Variables (Vercel)
+```
+DEEPGRAM_API_KEY=your_deepgram_key
+GROQ_API_KEY=your_groq_key          # Free from console.groq.com
+NEXT_PUBLIC_SUPABASE_URL=your_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_key
+SUPABASE_SERVICE_ROLE_KEY=your_key
+RAZORPAY_KEY_ID=your_key
+RAZORPAY_KEY_SECRET=your_secret
+```
+
+### 3. Load the Extension
+1. Go to `chrome://extensions`
+2. Enable **Developer Mode**
+3. Click **Load Unpacked** → select the `extension/` folder
+
+### 4. Deploy Web App
+```bash
+cd web
+npx vercel deploy --prod
+```
+
+---
+
+## 📁 Project Structure
+```
+VideoTranslator-Final/
+├── extension/                # Chrome Extension
+│   ├── manifest.json
+│   └── src/
+│       ├── popup/            # Login, settings UI
+│       ├── background/       # Tab capture coordinator
+│       ├── offscreen/        # Audio processing + history
+│       └── content/          # Subtitle injection
+├── web/                      # Next.js Web App
+│   ├── app/
+│   │   ├── api/
+│   │   │   ├── proxy/        # Deepgram transcription
+│   │   │   ├── history/      # Meeting history + AI
+│   │   │   ├── user/         # Auth + credits
+│   │   │   └── payment/      # Razorpay integration
+│   │   ├── dashboard/        # Meeting history UI
+│   │   └── page.tsx          # Landing page
+│   └── lib/supabase.ts       # DB client
+└── history.sql               # Database schema
+```
+
+---
+
+## 📄 License
+MIT
