@@ -58,6 +58,7 @@ async function startRecording(streamId, language, targetLanguage, token) {
         currentToken = token; // Save for history
         historyLog = []; // Reset history log
         historyStartTime = Date.now();
+        let consecutiveErrors = 0; // Track consecutive proxy failures
 
         // Initialize MediaStream *BEFORE* AudioContext
         mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -77,6 +78,22 @@ async function startRecording(streamId, language, targetLanguage, token) {
         audioContext = new AudioContext();
         const source = audioContext.createMediaStreamSource(mediaStream);
         source.connect(audioContext.destination);
+
+        // Monitor stream health — detect if tab audio capture dies
+        mediaStream.getTracks().forEach(track => {
+            track.onended = () => {
+                console.error("⚠️ MediaStream track ended unexpectedly!");
+                if (isRecording) {
+                    chrome.runtime.sendMessage({
+                        action: "TRANSCRIPT_RECEIVED",
+                        chunkId: Date.now(),
+                        text: "⚠️ Audio stream lost. Please restart.",
+                        isFinal: true
+                    });
+                    stopRecording();
+                }
+            };
+        });
 
         // Start Sidecar History (Now that we have a stream)
         // DISABLED FOR PERFORMANCE (User Request)
@@ -120,9 +137,21 @@ async function startRecording(streamId, language, targetLanguage, token) {
                     }
 
                     if (!response.ok) {
-                        console.warn(`Proxy Error (${response.status}): ${response.statusText}`);
+                        consecutiveErrors++;
+                        console.warn(`Proxy Error (${response.status}): ${response.statusText} [${consecutiveErrors} consecutive]`);
+                        if (consecutiveErrors >= 5) {
+                            chrome.runtime.sendMessage({
+                                action: "TRANSCRIPT_RECEIVED",
+                                chunkId: Date.now(),
+                                text: "⚠️ Server errors detected. Subtitles may be delayed.",
+                                isFinal: true
+                            });
+                            consecutiveErrors = 0; // Reset after warning
+                        }
                         return; // Skip this chunk if server fails
                     }
+
+                    consecutiveErrors = 0; // Reset on success
 
                     const result = await response.json();
                     // ... Process result ... (Logic remains same)

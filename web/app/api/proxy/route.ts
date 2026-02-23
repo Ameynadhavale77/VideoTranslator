@@ -71,30 +71,77 @@ export async function POST(req: Request) {
         // 2. Decode Base64 audio to Buffer
         const audioBuffer = Buffer.from(audio, 'base64');
 
-        // 3. Send to Deepgram (REST API for a single chunk)
-        // Using Nova-3 as per latest upgrade
-        const deepgramUrl = `https://api.deepgram.com/v1/listen?smart_format=true&model=nova-3&language=${language || 'en'}`;
+        // --- SMART ROUTING: Indian languages → Sarvam AI, Others → Deepgram ---
+        const SARVAM_LANGS: Record<string, string> = {
+            'hi': 'hi-IN', 'ta': 'ta-IN', 'te': 'te-IN', 'mr': 'mr-IN',
+            'gu': 'gu-IN', 'bn': 'bn-IN', 'kn': 'kn-IN', 'ml': 'ml-IN',
+            'pa': 'pa-IN', 'od': 'od-IN', 'ur': 'ur-IN'
+        };
 
-        const dgResponse = await fetch(deepgramUrl, {
-            method: "POST",
-            headers: {
-                "Authorization": `Token ${apiKey}`,
-                "Content-Type": "audio/webm",
-            },
-            body: audioBuffer
-        });
+        const useSarvam = SARVAM_LANGS[language] && process.env.SARVAM_API_KEY;
+        let transcript = "";
 
-        if (!dgResponse.ok) {
-            console.error(`Deepgram Error: ${dgResponse.status} ${dgResponse.statusText}`);
-            return NextResponse.json({ error: "Deepgram API Error" }, { status: 502, headers: corsHeaders });
+        if (useSarvam) {
+            // --- SARVAM AI (Indian Languages) ---
+            const sarvamKey = process.env.SARVAM_API_KEY!;
+            const langCode = SARVAM_LANGS[language];
+
+            // Sarvam expects multipart/form-data with a file
+            const formData = new FormData();
+            const audioBlob = new Blob([audioBuffer], { type: 'audio/webm' });
+            formData.append('file', audioBlob, 'audio.webm');
+            formData.append('model', 'saaras:v3');
+            formData.append('language_code', langCode);
+
+            const sarvamResponse = await fetch('https://api.sarvam.ai/speech-to-text', {
+                method: 'POST',
+                headers: {
+                    'api-subscription-key': sarvamKey
+                },
+                body: formData
+            });
+
+            if (sarvamResponse.ok) {
+                const sarvamResult = await sarvamResponse.json();
+                transcript = sarvamResult.transcript || "";
+                console.log(`🇮🇳 Sarvam (${langCode}): "${transcript.substring(0, 80)}"`);
+            } else {
+                // Fallback to Deepgram if Sarvam fails
+                console.warn(`Sarvam Error ${sarvamResponse.status}, falling back to Deepgram`);
+                const dgUrl = `https://api.deepgram.com/v1/listen?smart_format=true&model=nova-3&language=${language || 'en'}`;
+                const dgResp = await fetch(dgUrl, {
+                    method: "POST",
+                    headers: { "Authorization": `Token ${apiKey}`, "Content-Type": "audio/webm" },
+                    body: audioBuffer
+                });
+                if (dgResp.ok) {
+                    const dgResult = await dgResp.json();
+                    transcript = dgResult.results?.channels[0]?.alternatives[0]?.transcript || "";
+                }
+            }
+        } else {
+            // --- DEEPGRAM (Global Languages) ---
+            const deepgramUrl = `https://api.deepgram.com/v1/listen?smart_format=true&model=nova-3&language=${language || 'en'}`;
+
+            const dgResponse = await fetch(deepgramUrl, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Token ${apiKey}`,
+                    "Content-Type": "audio/webm",
+                },
+                body: audioBuffer
+            });
+
+            if (!dgResponse.ok) {
+                console.error(`Deepgram Error: ${dgResponse.status} ${dgResponse.statusText}`);
+                return NextResponse.json({ error: "Deepgram API Error" }, { status: 502, headers: corsHeaders });
+            }
+
+            const dgResult = await dgResponse.json();
+            transcript = dgResult.results?.channels[0]?.alternatives[0]?.transcript || "";
         }
 
-        const dgResult = await dgResponse.json();
-
-        // 4. Return result (Pure Transcript)
-        const transcript = dgResult.results?.channels[0]?.alternatives[0]?.transcript || "";
-
-        // 5. Deduct Credits ONLY after successful Deepgram response
+        // 5. Deduct Credits ONLY after successful response
         const DEDUCTION_AMOUNT = 2;
         await admin
             .from('credits')
