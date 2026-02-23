@@ -89,11 +89,10 @@ async function handleToggleCapture(request, sendResponse) {
 async function stopRecording() {
     chrome.runtime.sendMessage({ action: "STOP_RECORDING_OFFSCREEN" }).catch(() => { });
     // Don't close offscreen immediately — wait for OFFSCREEN_CLEANUP_DONE signal
-    // (gives saveHistory() time to complete its fetch)
-    // Fallback: close after 15s if signal never comes
+    // Fallback: close after 5s if signal never comes (was 15s — too slow for TabCapture release)
     setTimeout(async () => {
         try { await chrome.offscreen.closeDocument(); } catch (e) { }
-    }, 15000);
+    }, 5000);
 
     await setRecordingState(false, null);
     chrome.action.setBadgeText({ text: "" });
@@ -135,15 +134,37 @@ async function startRecording(tabId, language, targetLanguage, token, sendRespon
     } catch (err) {
         console.error("Error starting capture:", err);
 
-        // AUTO-RECOVERY: If tab is already captured, force a reset.
+        // AUTO-RECOVERY: If tab is already captured, force a reset and auto-retry.
         if (err.message.includes("Cannot capture a tab with an active stream")) {
-            console.log("Stream stuck. Resetting...");
+            console.log("Stream stuck. Force-resetting and retrying...");
 
-            // Force close everything
-            await stopRecording();
+            // Force close offscreen to release TabCapture
+            try { await chrome.offscreen.closeDocument(); } catch (e) { }
+            await setRecordingState(false, null);
+            chrome.action.setBadgeText({ text: "" });
 
-            // Tell user to try again (it's cleaner than auto-retrying which might loop)
-            sendResponse({ status: "Connection Reset. Click Start Again.", isRecording: false });
+            // Wait for Chrome to fully release the stream
+            await new Promise(r => setTimeout(r, 1500));
+
+            // Auto-retry once
+            try {
+                await setupOffscreenDocument('src/offscreen/offscreen.html');
+                const retryStreamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+                chrome.runtime.sendMessage({
+                    action: "START_RECORDING_OFFSCREEN",
+                    streamId: retryStreamId,
+                    language: language,
+                    targetLanguage: targetLanguage,
+                    token: token
+                });
+                await setRecordingState(true, tabId);
+                chrome.action.setBadgeText({ text: "ON" });
+                chrome.action.setBadgeBackgroundColor({ color: "#fa5252" });
+                sendResponse({ status: "Translation Started (Recovered)", isRecording: true });
+            } catch (retryErr) {
+                console.error("Auto-retry also failed:", retryErr);
+                sendResponse({ status: "Error: Please reload the page and try again.", isRecording: false });
+            }
         } else {
             sendResponse({ status: "Error: " + err.message, isRecording: false });
         }

@@ -211,10 +211,10 @@ chrome.runtime.onMessage.addListener((message) => {
 
         subtitleContainer.style.opacity = '1';
 
-        // Limit visible lines (Keep recent 3 for fast speech)
+        // Limit visible lines (Keep recent 2 for clean display)
         // Strictly select chunk elements to avoid removing other potential children
         let chunks = subtitleContainer.querySelectorAll('div[id^="chunk-"]');
-        while (chunks.length > 3) {
+        while (chunks.length > 2) {
             chunks[0].remove();
             chunks = subtitleContainer.querySelectorAll('div[id^="chunk-"]');
         }

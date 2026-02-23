@@ -154,10 +154,15 @@ async function startRecording(streamId, language, targetLanguage, token) {
                     consecutiveErrors = 0; // Reset on success
 
                     const result = await response.json();
-                    // ... Process result ... (Logic remains same)
+
                     if (result.transcript && result.transcript.trim().length > 0) {
-                        // ... transcript processing ...
                         let newText = result.transcript.trim();
+
+                        // Strip trailing dots — STT adds a period to every 1s chunk
+                        // which causes choppy subtitle breaks. Keep ? and ! as real endings.
+                        newText = newText.replace(/\.+$/, '');
+
+                        if (newText.length === 0) return; // Was just dots
 
                         // HISTORY: Accumulate raw transcript (zero-cost)
                         historyLog.push({
@@ -165,93 +170,48 @@ async function startRecording(streamId, language, targetLanguage, token) {
                             timestamp: (Date.now() - historyStartTime) / 1000
                         });
 
-                        // 1. Append to Buffer
+                        // Simple buffer: accumulate text, finalize by length or real punctuation
                         transcriptBuffer += " " + newText;
                         transcriptBuffer = transcriptBuffer.trim();
 
-                        // 2. Process Buffer: Look for "Split Points" (Punctuators)
-                        const splitRegex = /(.*?[.?!,。！？，])\s*(.*)/s;
+                        // Only ? and ! are real sentence endings (dots are STT artifacts)
+                        const sentenceEnd = /[?!。！？]$/;
+                        const hasPunctuation = sentenceEnd.test(transcriptBuffer);
+                        const tooLong = transcriptBuffer.length > 120;
 
-                        let match;
-                        while ((match = transcriptBuffer.match(splitRegex)) !== null) {
-                            // We found a split!
-                            let finalPart = match[1].trim();
-                            let remainder = match[2].trim();
+                        if (hasPunctuation || tooLong) {
+                            // We have a complete thought — send it as final
+                            let textToShow = transcriptBuffer;
 
-                            // Translate Final Part
-                            let translatedFinal = finalPart;
+                            // Translate if needed
                             if (targetLanguage && targetLanguage !== 'same' && targetLanguage !== language) {
-                                translatedFinal = await translateText(finalPart, language, targetLanguage);
+                                textToShow = await translateText(textToShow, language, targetLanguage);
                             }
 
-                            // Send FINAL chunk
                             chrome.runtime.sendMessage({
                                 action: "TRANSCRIPT_RECEIVED",
                                 chunkId: currentChunkId,
-                                text: translatedFinal,
+                                text: textToShow,
                                 isFinal: true
                             });
 
-                            // Prepare for next chunk
+                            // Reset for next sentence
+                            transcriptBuffer = "";
                             currentChunkId = Date.now();
-                            transcriptBuffer = remainder;
-                        }
+                        } else {
+                            // Still accumulating — show as live preview (update in place)
+                            let textToShow = transcriptBuffer;
 
-                        // 3. Handle Remaining Buffer (Interim)
-                        if (transcriptBuffer.length > 0) {
-                            let textToTranslate = transcriptBuffer;
                             if (targetLanguage && targetLanguage !== 'same' && targetLanguage !== language) {
-                                textToTranslate = await translateText(textToTranslate, language, targetLanguage);
+                                textToShow = await translateText(textToShow, language, targetLanguage);
                             }
 
                             chrome.runtime.sendMessage({
                                 action: "TRANSCRIPT_RECEIVED",
-                                chunkId: currentChunkId,
-                                text: textToTranslate,
+                                chunkId: currentChunkId, // Same ID = updates in place, no new div
+                                text: textToShow,
                                 isFinal: false
                             });
-                        }
-
-                        // 4. Force Finalize if Buffer is too long (Safety Valve & Wrapping)
-                        const MAX_CHUNK_LENGTH = 80;
-
-                        if (transcriptBuffer.length > MAX_CHUNK_LENGTH) {
-                            // Find last space within the safe zone
-                            let lastSpaceIndex = transcriptBuffer.lastIndexOf(' ', MAX_CHUNK_LENGTH);
-
-                            if (lastSpaceIndex > -1) {
-                                // Split at space!
-                                let finalPart = transcriptBuffer.substring(0, lastSpaceIndex).trim();
-                                let remainder = transcriptBuffer.substring(lastSpaceIndex + 1).trim();
-
-                                // Translate
-                                let translatedFinal = finalPart;
-                                if (targetLanguage && targetLanguage !== 'same' && targetLanguage !== language) {
-                                    translatedFinal = await translateText(finalPart, language, targetLanguage);
-                                }
-
-                                // Send FINAL chunk
-                                chrome.runtime.sendMessage({
-                                    action: "TRANSCRIPT_RECEIVED",
-                                    chunkId: currentChunkId,
-                                    text: translatedFinal,
-                                    isFinal: true
-                                });
-
-                                // Update Buffer
-                                transcriptBuffer = remainder;
-                                currentChunkId = Date.now();
-                            } else {
-                                // Force dump at index 80
-                                chrome.runtime.sendMessage({
-                                    action: "TRANSCRIPT_RECEIVED",
-                                    chunkId: currentChunkId,
-                                    text: transcriptBuffer,
-                                    isFinal: true
-                                });
-                                transcriptBuffer = "";
-                                currentChunkId = Date.now();
-                            }
                         }
                     }
 
@@ -263,6 +223,13 @@ async function startRecording(streamId, language, targetLanguage, token) {
 
         const recordCycle = () => {
             if (!isRecording) return;
+
+            // Check if stream is still alive before recording
+            if (!mediaStream || mediaStream.getTracks().every(t => t.readyState === 'ended')) {
+                console.error("⚠️ Stream died — stopping recording cycle.");
+                stopRecording();
+                return;
+            }
 
             mediaRecorder = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
 
@@ -279,10 +246,9 @@ async function startRecording(streamId, language, targetLanguage, token) {
                 }
                 // Schedule next cycle
                 if (isRecording) {
-                    // Reduced gap from 50ms -> 10ms for faster response
                     setTimeout(recordCycle, 10);
                 }
-            }, 1000); // CHANGED FROM 2000 TO 1000
+            }, 1000);
         };
 
         recordCycle();

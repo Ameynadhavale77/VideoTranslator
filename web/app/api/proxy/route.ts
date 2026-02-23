@@ -108,7 +108,7 @@ export async function POST(req: Request) {
             } else {
                 // Fallback to Deepgram if Sarvam fails
                 console.warn(`Sarvam Error ${sarvamResponse.status}, falling back to Deepgram`);
-                const dgUrl = `https://api.deepgram.com/v1/listen?smart_format=true&model=nova-3&language=${language || 'en'}`;
+                const dgUrl = `https://api.deepgram.com/v1/listen?model=nova-3&language=${language || 'en'}`;
                 const dgResp = await fetch(dgUrl, {
                     method: "POST",
                     headers: { "Authorization": `Token ${apiKey}`, "Content-Type": "audio/webm" },
@@ -121,7 +121,7 @@ export async function POST(req: Request) {
             }
         } else {
             // --- DEEPGRAM (Global Languages) ---
-            const deepgramUrl = `https://api.deepgram.com/v1/listen?smart_format=true&model=nova-3&language=${language || 'en'}`;
+            const deepgramUrl = `https://api.deepgram.com/v1/listen?model=nova-3&language=${language || 'en'}`;
 
             const dgResponse = await fetch(deepgramUrl, {
                 method: "POST",
