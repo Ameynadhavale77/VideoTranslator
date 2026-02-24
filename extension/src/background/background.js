@@ -79,14 +79,23 @@ async function handleToggleCapture(request, sendResponse) {
     }
 
     if (isRecording) {
-        await stopRecording();
+        await stopRecording("User Toggle");
         sendResponse({ status: "Translation Stopped", isRecording: false });
     } else {
         await startRecording(tabId, language, targetLanguage, request.token, captureMode, sendResponse);
     }
 }
 
-async function stopRecording() {
+async function stopRecording(source = "Unknown") {
+    console.log(`⏹️ stopRecording triggered by: ${source}`);
+    chrome.notifications.create({
+        type: 'basic',
+        iconUrl: '../icons/icon128.png',
+        title: 'Debug: Capture Stopped',
+        message: `Reason: ${source}`,
+        priority: 1
+    });
+
     chrome.runtime.sendMessage({ action: "STOP_RECORDING_OFFSCREEN" }).catch(() => { });
     // Don't close offscreen immediately — wait for OFFSCREEN_CLEANUP_DONE signal
     // (gives saveHistory() time to complete its fetch)
@@ -201,7 +210,7 @@ chrome.runtime.onMessage.addListener((message) => {
         }
     }
     else if (message.action === "AUTH_ERROR") {
-        stopRecording();
+        stopRecording("401 Token Expired");
         chrome.action.setBadgeText({ text: "ERR" });
         chrome.action.setBadgeBackgroundColor({ color: "#000000" });
 
@@ -214,7 +223,7 @@ chrome.runtime.onMessage.addListener((message) => {
         });
     }
     else if (message.action === "OUT_OF_CREDITS") {
-        stopRecording();
+        stopRecording("402 Out Of Credits");
         chrome.action.setBadgeText({ text: "0$" });
         chrome.action.setBadgeBackgroundColor({ color: "#000000" });
 

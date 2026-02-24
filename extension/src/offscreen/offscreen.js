@@ -172,7 +172,7 @@ async function startRecording(streamId, language, targetLanguage, token, capture
                             isFinal: true
                         });
                         chrome.runtime.sendMessage({ action: "AUTH_ERROR" });
-                        stopRecording();
+                        stopRecording("401 Auth Error from API");
                         return;
                     }
 
@@ -185,7 +185,7 @@ async function startRecording(streamId, language, targetLanguage, token, capture
                             isFinal: true
                         });
                         chrome.runtime.sendMessage({ action: "OUT_OF_CREDITS" });
-                        stopRecording();
+                        stopRecording("402 Out Of Credits from API");
                         return;
                     }
 
@@ -304,7 +304,7 @@ async function startRecording(streamId, language, targetLanguage, token, capture
             // Check if stream is still alive before recording
             if (!mediaStream || mediaStream.getTracks().every(t => t.readyState === 'ended')) {
                 console.error("⚠️ Stream died — stopping recording cycle.");
-                stopRecording();
+                stopRecording("Stream died during record cycle");
                 return;
             }
 
@@ -336,7 +336,10 @@ async function startRecording(streamId, language, targetLanguage, token, capture
     }
 }
 
-async function stopRecording() {
+async function stopRecording(reason = "Unspecified Offscreen Reason") {
+    console.log(`⏹️ Offscreen stopRecording triggered: ${reason}`);
+    chrome.runtime.sendMessage({ action: "LOG_STOP_REASON", reason: reason }).catch(() => { });
+
     isRecording = false;
 
     // Flush remaining buffer as FINAL before clearing
