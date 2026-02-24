@@ -89,10 +89,11 @@ async function handleToggleCapture(request, sendResponse) {
 async function stopRecording() {
     chrome.runtime.sendMessage({ action: "STOP_RECORDING_OFFSCREEN" }).catch(() => { });
     // Don't close offscreen immediately — wait for OFFSCREEN_CLEANUP_DONE signal
-    // Fallback: close after 5s if signal never comes (was 15s — too slow for TabCapture release)
+    // (gives saveHistory() time to complete its fetch)
+    // Fallback: close after 20s if signal never comes
     setTimeout(async () => {
         try { await chrome.offscreen.closeDocument(); } catch (e) { }
-    }, 5000);
+    }, 20000);
 
     await setRecordingState(false, null);
     chrome.action.setBadgeText({ text: "" });

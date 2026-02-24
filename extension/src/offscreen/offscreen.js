@@ -326,13 +326,7 @@ async function stopRecording() {
     }
     transcriptBuffer = ""; // Clear buffer
 
-    // Save meeting history (AWAIT so offscreen stays alive until done)
-    if (currentToken && historyLog.length > 0) {
-        await saveHistory(currentToken, historyLog);
-    }
-    currentToken = null;
-    historyLog = [];
-
+    // 1. Release all audio capture resources INSTANTLY
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         mediaRecorder.stop();
         mediaRecorder = null;
@@ -346,7 +340,14 @@ async function stopRecording() {
         audioContext = null;
     }
 
-    // Signal background that cleanup is complete — safe to close offscreen
+    // 2. Save meeting history in the background (Await prevents early close)
+    if (currentToken && historyLog.length > 0) {
+        await saveHistory(currentToken, historyLog);
+    }
+    currentToken = null;
+    historyLog = [];
+
+    // 3. Signal background that cleanup is complete — safe to close offscreen
     chrome.runtime.sendMessage({ action: "OFFSCREEN_CLEANUP_DONE" }).catch(() => { });
 }
 
