@@ -32,19 +32,43 @@ function blobToBase64(blob) {
     });
 }
 
+let translationRateLimitedUntil = 0;
+
 async function translateText(text, sourceLang, targetLang) {
+    if (Date.now() < translationRateLimitedUntil) {
+        return text; // Skip translation during backoff to let quota recover
+    }
+
     try {
         let sl = sourceLang === 'zh' ? 'zh-CN' : sourceLang;
         let tl = targetLang === 'zh' ? 'zh-CN' : targetLang;
         const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=${tl}&dt=t&q=${encodeURIComponent(text)}`;
         const res = await fetch(url);
+
+        if (!res.ok) {
+            if (res.status === 429) {
+                console.warn("Translation API Rate Limited (429). Backing off for 15s...");
+                translationRateLimitedUntil = Date.now() + 15000; // 15s backoff
+            } else {
+                console.warn(`Translation API returned error: ${res.status}`);
+            }
+            return text;
+        }
+
+        const contentType = res.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+            console.warn("Translation API didn't return JSON. Backing off...");
+            translationRateLimitedUntil = Date.now() + 10000;
+            return text;
+        }
+
         const data = await res.json();
         if (data && data[0]) {
             return data[0].map(s => s[0]).join('');
         }
         return text;
     } catch (err) {
-        console.error("Translation API failed:", err);
+        console.warn("Translation fetch failed:", err.message);
         return text;
     }
 }
