@@ -70,7 +70,7 @@ async function setRecordingState(active, tabId) {
 }
 
 async function handleToggleCapture(request, sendResponse) {
-    const { tabId, language, targetLanguage } = request;
+    const { tabId, language, targetLanguage, captureMode } = request;
 
     // Refresh state from storage first
     const stored = await chrome.storage.local.get(['recordingState']);
@@ -82,7 +82,7 @@ async function handleToggleCapture(request, sendResponse) {
         await stopRecording();
         sendResponse({ status: "Translation Stopped", isRecording: false });
     } else {
-        await startRecording(tabId, language, targetLanguage, request.token, sendResponse);
+        await startRecording(tabId, language, targetLanguage, request.token, captureMode, sendResponse);
     }
 }
 
@@ -98,7 +98,7 @@ async function stopRecording() {
     chrome.action.setBadgeText({ text: "" });
 }
 
-async function startRecording(tabId, language, targetLanguage, token, sendResponse) {
+async function startRecording(tabId, language, targetLanguage, token, captureMode, sendResponse) {
     try {
         // Inject scripts
         await chrome.scripting.insertCSS({
@@ -122,7 +122,8 @@ async function startRecording(tabId, language, targetLanguage, token, sendRespon
             streamId: streamId,
             language: language,
             targetLanguage: targetLanguage,
-            token: token
+            token: token,
+            captureMode: captureMode || 'video'
         });
 
         await setRecordingState(true, tabId);
@@ -138,15 +139,19 @@ async function startRecording(tabId, language, targetLanguage, token, sendRespon
         if (err.message.includes("Cannot capture a tab with an active stream")) {
             console.log("Stream stuck. Force-resetting and retrying...");
 
-            // Force close offscreen to release TabCapture
+            // Step 1: Tell offscreen to stop its streams first
+            chrome.runtime.sendMessage({ action: "STOP_RECORDING_OFFSCREEN" }).catch(() => { });
+            await new Promise(r => setTimeout(r, 500));
+
+            // Step 2: Force close offscreen to release TabCapture
             try { await chrome.offscreen.closeDocument(); } catch (e) { }
             await setRecordingState(false, null);
             chrome.action.setBadgeText({ text: "" });
 
-            // Wait for Chrome to fully release the stream
-            await new Promise(r => setTimeout(r, 1500));
+            // Step 3: Wait longer for Chrome to fully release the stream
+            await new Promise(r => setTimeout(r, 3000));
 
-            // Auto-retry once
+            // Step 4: Auto-retry once
             try {
                 await setupOffscreenDocument('src/offscreen/offscreen.html');
                 const retryStreamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
@@ -155,7 +160,8 @@ async function startRecording(tabId, language, targetLanguage, token, sendRespon
                     streamId: retryStreamId,
                     language: language,
                     targetLanguage: targetLanguage,
-                    token: token
+                    token: token,
+                    captureMode: captureMode || 'video'
                 });
                 await setRecordingState(true, tabId);
                 chrome.action.setBadgeText({ text: "ON" });
@@ -198,14 +204,74 @@ chrome.runtime.onMessage.addListener((message) => {
         chrome.action.setBadgeText({ text: "ERR" });
         chrome.action.setBadgeBackgroundColor({ color: "#000000" });
 
-        // Show Notification
         chrome.notifications.create({
             type: 'basic',
             iconUrl: '../icons/icon128.png',
             title: 'Login Expired',
-            message: 'Please open the extension and log in again to continue translating.',
+            message: 'Your session has expired. Please open the extension and log in again (1 hour limit).',
             priority: 2
         });
+    }
+    else if (message.action === "OUT_OF_CREDITS") {
+        stopRecording();
+        chrome.action.setBadgeText({ text: "0$" });
+        chrome.action.setBadgeBackgroundColor({ color: "#000000" });
+
+        chrome.notifications.create({
+            type: 'basic',
+            iconUrl: '../icons/icon128.png',
+            title: 'Out of Credits',
+            message: 'Your transcription balance has run out. Please open the extension to add credits.',
+            priority: 2
+        });
+    }
+    else if (message.action === "STREAM_DIED") {
+        // Auto-reconnect: stream died (tab switch, PiP, Chrome reclaimed)
+        console.log("🔄 Stream died — auto-reconnecting...");
+
+        (async () => {
+            const stored = await chrome.storage.local.get(['recordingState', 'captureMode']);
+            const tabId = stored.recordingState?.recordingTabId;
+            const mode = stored.captureMode || 'video';
+
+            if (!tabId) {
+                console.error("No tabId saved — cannot reconnect");
+                return;
+            }
+
+            // Close old offscreen
+            try { await chrome.offscreen.closeDocument(); } catch (e) { }
+
+            // Wait for Chrome to release TabCapture
+            await new Promise(r => setTimeout(r, 3000));
+
+            // Get saved language settings
+            const langData = await chrome.storage.local.get(['stored_language', 'stored_target_language']);
+            const lang = langData.stored_language || 'en';
+            const targetLang = langData.stored_target_language || 'same';
+
+            // Get token
+            const tokenData = await chrome.storage.local.get(['supabase_token']);
+            const token = tokenData.supabase_token;
+
+            try {
+                await setupOffscreenDocument('src/offscreen/offscreen.html');
+                const newStreamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+                chrome.runtime.sendMessage({
+                    action: "START_RECORDING_OFFSCREEN",
+                    streamId: newStreamId,
+                    language: lang,
+                    targetLanguage: targetLang,
+                    token: token,
+                    captureMode: mode
+                });
+                console.log("✅ Auto-reconnect successful!");
+            } catch (err) {
+                console.error("❌ Auto-reconnect failed:", err);
+                await setRecordingState(false, null);
+                chrome.action.setBadgeText({ text: "" });
+            }
+        })();
     }
 });
 

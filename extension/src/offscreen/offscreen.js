@@ -49,9 +49,9 @@ async function translateText(text, sourceLang, targetLang) {
     }
 }
 
-async function startRecording(streamId, language, targetLanguage, token) {
+async function startRecording(streamId, language, targetLanguage, token, captureMode) {
     try {
-        console.log("Starting Proxy recording...");
+        console.log(`Starting Proxy recording... (Mode: ${captureMode})`);
         isRecording = true;
         transcriptBuffer = ""; // Reset buffer
         currentChunkId = Date.now();
@@ -59,6 +59,11 @@ async function startRecording(streamId, language, targetLanguage, token) {
         historyLog = []; // Reset history log
         historyStartTime = Date.now();
         let consecutiveErrors = 0; // Track consecutive proxy failures
+
+        // Mode settings
+        const CHUNK_DURATION = captureMode === 'meeting' ? 2000 : 1000;
+        const MAX_BUFFER_LENGTH = captureMode === 'meeting' ? 60 : 120;
+        let silenceCount = 0; // Track empty responses for meeting mode
 
         // Initialize MediaStream *BEFORE* AudioContext
         mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -79,18 +84,23 @@ async function startRecording(streamId, language, targetLanguage, token) {
         const source = audioContext.createMediaStreamSource(mediaStream);
         source.connect(audioContext.destination);
 
-        // Monitor stream health — detect if tab audio capture dies
+        // Monitor stream health — auto-reconnect if tab audio capture dies
         mediaStream.getTracks().forEach(track => {
             track.onended = () => {
-                console.error("⚠️ MediaStream track ended unexpectedly!");
+                console.warn("⚠️ MediaStream track ended — requesting reconnect...");
                 if (isRecording) {
+                    isRecording = false; // Stop the record cycle
+
+                    // Show reconnecting message
                     chrome.runtime.sendMessage({
                         action: "TRANSCRIPT_RECEIVED",
                         chunkId: Date.now(),
-                        text: "⚠️ Audio stream lost. Please restart.",
+                        text: "🔄 Reconnecting...",
                         isFinal: true
                     });
-                    stopRecording();
+
+                    // Ask background to reconnect
+                    chrome.runtime.sendMessage({ action: "STREAM_DIED" });
                 }
             };
         });
@@ -131,7 +141,26 @@ async function startRecording(streamId, language, targetLanguage, token) {
 
                     if (response.status === 401) {
                         console.error("Authentication Token Expired (401)");
+                        chrome.runtime.sendMessage({
+                            action: "TRANSCRIPT_RECEIVED",
+                            chunkId: Date.now(),
+                            text: "⚠️ Session expired (1 hour limit). Please open the extension and log in again.",
+                            isFinal: true
+                        });
                         chrome.runtime.sendMessage({ action: "AUTH_ERROR" });
+                        stopRecording();
+                        return;
+                    }
+
+                    if (response.status === 402) {
+                        console.error("Out of credits! (402)");
+                        chrome.runtime.sendMessage({
+                            action: "TRANSCRIPT_RECEIVED",
+                            chunkId: Date.now(),
+                            text: "💳 Out of credits! Please add more to continue.",
+                            isFinal: true
+                        });
+                        chrome.runtime.sendMessage({ action: "OUT_OF_CREDITS" });
                         stopRecording();
                         return;
                     }
@@ -158,11 +187,16 @@ async function startRecording(streamId, language, targetLanguage, token) {
                     if (result.transcript && result.transcript.trim().length > 0) {
                         let newText = result.transcript.trim();
 
-                        // Strip trailing dots — STT adds a period to every 1s chunk
-                        // which causes choppy subtitle breaks. Keep ? and ! as real endings.
+                        // Strip trailing dots — STT artifacts
                         newText = newText.replace(/\.+$/, '');
 
-                        if (newText.length === 0) return; // Was just dots
+                        if (newText.length === 0) {
+                            silenceCount++;
+                        } else {
+                            silenceCount = 0; // Reset on speech
+                        }
+
+                        if (newText.length === 0) return;
 
                         // HISTORY: Accumulate raw transcript (zero-cost)
                         historyLog.push({
@@ -177,7 +211,7 @@ async function startRecording(streamId, language, targetLanguage, token) {
                         // Only ? and ! are real sentence endings (dots are STT artifacts)
                         const sentenceEnd = /[?!。！？]$/;
                         const hasPunctuation = sentenceEnd.test(transcriptBuffer);
-                        const tooLong = transcriptBuffer.length > 120;
+                        const tooLong = transcriptBuffer.length > MAX_BUFFER_LENGTH;
 
                         if (hasPunctuation || tooLong) {
                             // We have a complete thought — send it as final
@@ -213,6 +247,25 @@ async function startRecording(streamId, language, targetLanguage, token) {
                                 isFinal: false
                             });
                         }
+                    } else if (captureMode === 'meeting' && transcriptBuffer.trim().length > 0) {
+                        // MEETING MODE: Empty transcript = silence/pause
+                        // Finalize whatever is in the buffer
+                        silenceCount++;
+                        if (silenceCount >= 2) { // 2 consecutive empty = real pause
+                            let textToShow = transcriptBuffer;
+                            if (targetLanguage && targetLanguage !== 'same' && targetLanguage !== language) {
+                                textToShow = await translateText(textToShow, language, targetLanguage);
+                            }
+                            chrome.runtime.sendMessage({
+                                action: "TRANSCRIPT_RECEIVED",
+                                chunkId: currentChunkId,
+                                text: textToShow,
+                                isFinal: true
+                            });
+                            transcriptBuffer = "";
+                            currentChunkId = Date.now();
+                            silenceCount = 0;
+                        }
                     }
 
                 } catch (e) {
@@ -239,7 +292,7 @@ async function startRecording(streamId, language, targetLanguage, token) {
 
             mediaRecorder.start();
 
-            // Stop after 1 second (1000ms) for faster latency
+            // Stop after CHUNK_DURATION
             setTimeout(() => {
                 if (mediaRecorder && mediaRecorder.state !== 'inactive') {
                     mediaRecorder.stop();
@@ -248,7 +301,7 @@ async function startRecording(streamId, language, targetLanguage, token) {
                 if (isRecording) {
                     setTimeout(recordCycle, 10);
                 }
-            }, 1000);
+            }, CHUNK_DURATION);
         };
 
         recordCycle();
@@ -323,7 +376,7 @@ async function saveHistory(token, log) {
 // Listen for messages from Background Script
 chrome.runtime.onMessage.addListener((message) => {
     if (message.action === "START_RECORDING_OFFSCREEN") {
-        startRecording(message.streamId, message.language, message.targetLanguage, message.token);
+        startRecording(message.streamId, message.language, message.targetLanguage, message.token, message.captureMode || 'video');
     } else if (message.action === "STOP_RECORDING_OFFSCREEN") {
         stopRecording();
     }
