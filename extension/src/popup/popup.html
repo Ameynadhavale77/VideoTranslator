@@ -226,6 +226,24 @@
     </div>
 
     <div class="input-group">
+      <label>Mode</label>
+      <div id="mode-toggle" style="display: flex; gap: 6px;">
+        <button type="button" class="mode-btn" data-mode="video"
+          style="flex:1; padding: 6px; font-size: 11px; border: 2px solid #6366F1; border-radius: 6px; background: #6366F1; color: white; cursor: pointer; font-weight: bold;">
+          🎬 Video
+        </button>
+        <button type="button" class="mode-btn" data-mode="classic"
+          style="flex:1; padding: 6px; font-size: 11px; border: 2px solid #6366F1; border-radius: 6px; background: transparent; color: #9CA3AF; cursor: pointer; font-weight: bold;">
+          📻 Classic
+        </button>
+        <button type="button" class="mode-btn" data-mode="meeting"
+          style="flex:1; padding: 6px; font-size: 11px; border: 2px solid #6366F1; border-radius: 6px; background: transparent; color: #9CA3AF; cursor: pointer; font-weight: bold;">
+          🎤 Meeting
+        </button>
+      </div>
+    </div>
+
+    <div class="input-group">
       <label for="language">Video Language</label>
       <select id="language">
         <option value="en" selected>English</option>

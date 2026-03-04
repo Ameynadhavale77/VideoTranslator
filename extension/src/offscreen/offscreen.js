@@ -85,8 +85,9 @@ async function startRecording(streamId, language, targetLanguage, token, capture
         let consecutiveErrors = 0; // Track consecutive proxy failures
 
         // Mode settings
-        const CHUNK_DURATION = captureMode === 'meeting' ? 2000 : 1000;
+        const CHUNK_DURATION = captureMode === 'video' ? 1000 : 2000; // classic & meeting = 2s
         const MAX_BUFFER_LENGTH = captureMode === 'meeting' ? 60 : 120;
+        const USE_BUFFER = captureMode !== 'classic'; // Classic = no buffering
         let silenceCount = 0; // Track empty responses for meeting mode
 
         // Initialize MediaStream *BEFORE* AudioContext
@@ -228,7 +229,22 @@ async function startRecording(streamId, language, targetLanguage, token, capture
                             timestamp: (Date.now() - historyStartTime) / 1000
                         });
 
-                        // Simple buffer: accumulate text, finalize by length or real punctuation
+                        // === CLASSIC MODE: No buffering, display each chunk directly ===
+                        if (!USE_BUFFER) {
+                            let textToShow = newText;
+                            if (targetLanguage && targetLanguage !== 'same' && targetLanguage !== language) {
+                                textToShow = await translateText(newText, language, targetLanguage);
+                            }
+                            chrome.runtime.sendMessage({
+                                action: "TRANSCRIPT_RECEIVED",
+                                chunkId: Date.now(),
+                                text: textToShow,
+                                isFinal: true
+                            });
+                            return; // Skip all buffer logic
+                        }
+
+                        // === BUFFERED MODES (Video & Meeting) ===
                         transcriptBuffer += " " + newText;
                         transcriptBuffer = transcriptBuffer.trim();
 
